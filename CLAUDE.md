@@ -1,123 +1,156 @@
 # CLAUDE.md — AI Development Rules for epub-automation
-# Last updated: 2026-07-04 — Design phase complete, no code written yet. Full requirement docs in `requirements/`, pending a design-review pass in a separate chat before build starts.
+# Last updated: 2026-07-05 — Design phase complete, no code written. Full design in `docs/requirements/` + `docs/design/` (SYSTEM_DESIGN, ADRs, PATTERNS.md); reviewed in `docs/design_review.md`; sequenced in `docs/BACKLOG.md`. All open assumptions confirmed except the items in "Flagged open items" below. Still pending: a build-start session.
 
 ---
 
 ## Startup protocol
 
-1. **No code exists yet.** This repo currently contains only `requirements/` (9
-   numbered design docs + README + REVIEW_PROMPT). Before writing any code,
-   read `requirements/README.md`, then the numbered docs in order.
-2. Check `requirements/08-open-questions-and-assumptions.md` first — several
-   items there are unresolved on purpose, pending a review pass. Don't build
-   against an assumption listed there without either confirming it with the
-   user or flagging that you're doing so.
-3. If a design-review pass has since happened (look for review notes or
-   updated requirement docs with a later "last reviewed" date), treat the
-   reviewed/updated docs as current over anything summarized in this file —
-   this file is a snapshot, the `requirements/` docs are the source of truth.
-4. Once real code exists, this file should gain a `CODEBASE_INDEX.md`
-   companion (file map, migration table, etc.) the same way sibling projects
-   in this repos folder do — create it during the first build session rather
-   than retrofitting it later.
+1. **No code exists yet.** Before writing any, read in order:
+   `docs/requirements/README.md` → numbered docs 00–10 →
+   `docs/design/SYSTEM_DESIGN.md` → `docs/design/adr/README.md` →
+   `docs/design/PATTERNS.md` (implementation patterns to build against)
+   → `docs/BACKLOG.md` (what order to build it in). `docs/design_review.md`
+   explains why several decisions below look the way they do.
+2. Check `docs/requirements/08-open-questions-and-assumptions.md` and
+   this file's "Flagged open items" table first. Don't build against an
+   open item without confirming with the user or flagging that you are.
+3. `docs/requirements/`, `docs/design/`, and `docs/BACKLOG.md` are kept
+   reconciled with each other — if a change to one affects another,
+   update both, don't let them drift.
+4. Create `CODEBASE_INDEX.md` at repo root during the first build
+   session (file map, migration table), matching sibling projects.
+5. **Apply the patterns in `docs/design/PATTERNS.md`** when writing
+   pipeline/backend/frontend code (the `Stage` interface, `Strategy`/
+   `Registry` for `ai_providers/`, `Repository` wrappers, the
+   state-machine derivation function, the React hook layer). Flag it
+   if a pattern turns out to be the wrong fit rather than silently
+   diverging — update `PATTERNS.md` to match reality.
+6. **Work from `docs/BACKLOG.md`, in sequence**, unless told otherwise —
+   it already encodes risk ordering (sanitize port + Kokoro packaging
+   spike early) and reuse-by-default (ported stages before new work).
+   Check off items there as completed; add new ones if work surfaces
+   that isn't captured yet.
 
-## Project summary (see `requirements/00-overview-and-goals.md` for full detail)
+## Project summary (full detail: `docs/requirements/00-overview-and-goals.md`)
 
-Combines three existing standalone tools — `epub-renamer`, `epub-sanitize`,
-`epub-to-audio` — into one batch pipeline with two front doors: a CLI/advanced
-mode, and an accessible local web GUI built for a specific, real accessibility
-persona (reduced fine-motor precision from RA; difficulty learning/holding
-new multi-step processes in mind, from FMS). Also a portfolio piece.
+Merges three existing standalone tools — all public on GitHub — into
+one batch pipeline with two front doors: a CLI/advanced mode, and an
+accessible local web GUI for a real accessibility persona (RA: reduced
+fine-motor precision; FMS: difficulty holding multi-step processes in
+mind), plus a broader WCAG 2.1 AA alignment layer (ADR-0015). Also a
+portfolio piece.
+
+- [`epub-renamer`](https://github.com/Jinniyah/epub-renamer) (MIT, Python)
+- [`epub-sanitize`](https://github.com/Jinniyah/epub-sanitize) (no license, PowerShell)
+- [`epub-to-audio`](https://github.com/Jinniyah/epub-to-audio) (MIT, Python)
+
+**Explicit design principle:** reuse each source project's existing
+implementation by default; write new code only for a changed
+constraint, a real gap, or a bug fix — see ADR-0014 for the full
+verbatim-vs-new accounting. The one large exception is the WCAG layer
+(ADR-0015): none of the three source tools had a GUI at all.
 
 ## Environment
 
-- Windows, PowerShell. Backslash paths. `;` not `&&` for chaining, once shell
-  commands are relevant.
-- Python 3.11+ for the pipeline/backend. Node/Vite for the React frontend —
-  **build-time only**, never a runtime dependency on the end user's machine
-  (see `requirements/07-packaging-deployment.md`).
-- Target ships as a single PyInstaller `.exe` for a non-technical end user —
-  do not introduce anything at build time that assumes Python, Node, or a
-  terminal are available on the *target* machine.
+- Windows, PowerShell. Backslash paths. `;` not `&&` for chaining.
+- Python 3.11+ for pipeline/backend. Node/Vite for React — **build-time
+  only**, never a runtime dependency on the target machine.
+- Ships as a single PyInstaller `.exe` for a non-technical end user —
+  nothing at build time should assume Python/Node/a terminal exist on
+  the *target* machine.
 
-## Filesystem rules (carried over from this environment's known quirks — assume these apply here too until proven otherwise)
+## Filesystem rules (this environment's known quirks — assume they apply here too)
 
-- **Never use `filesystem:edit_file`** — on this Windows/CRLF setup it has
-  silently failed on sibling projects (reports success, shows a valid diff,
-  file on disk unchanged). Safe workflow, every file type, no exceptions:
-  1. `filesystem:read_text_file` the FULL file
-  2. Edit in memory
-  3. `filesystem:write_file` the FULL file back
-  Writing back a partial file silently truncates the rest.
-- **No delete operation** — only `move_file`. Stage removed files in a
-  `_removed/` folder at repo root; let the user `git rm` at a natural
-  checkpoint.
-- New files: `filesystem:write_file` only. Never a sandbox-only file-creation
-  tool — that writes to a container, not this repo.
-- `view_range` / `head`/`tail` on read tools can be unreliable for pinpointing
-  a mid-file location — prefer a full read when precision matters.
+- **Never use `filesystem:edit_file`** — silently fails on this
+  Windows/CRLF setup (reports success, file unchanged). Always: full
+  `read_text_file` → edit in memory → full `write_file` back. A partial
+  write silently truncates the rest.
+- **No delete operation** — only `move_file`. Stage removals in a
+  `_removed/` folder at repo root for the user to `git rm` later.
+- New files: `filesystem:write_file` only — sandbox file-creation tools
+  write to a container, not this repo.
+- Prefer a full read over `head`/`tail`/`view_range` when precision matters.
 
-## Paths (once scaffolded — see `requirements/01-architecture.md` for full structure)
+## Paths
 
 | Root | Path |
 |---|---|
 | Repo root | `C:\Users\jinni\source\repos\epub-automation\` |
-| Requirements (current source of truth) | `C:\Users\jinni\source\repos\epub-automation\requirements\` |
-| Pipeline core (planned) | `...\epub-automation\pipeline\` |
-| Flask backend (planned) | `...\epub-automation\backend\` |
-| React frontend (planned) | `...\epub-automation\frontend\` |
-| Library staging folders (planned) | `...\epub-automation\Library\00-Incoming` → `01-Renamed` → `02-Sanitized` → `03-Audio` |
+| Requirements (*what*) | `...\docs\requirements\` |
+| Design + ADRs (*why*) | `...\docs\design\` |
+| Patterns (*how*) | `...\docs\design\PATTERNS.md` |
+| Final pre-coding review | `...\docs\design_review.md` |
+| Backlog (*what order*) | `...\docs\BACKLOG.md` |
+| Pipeline / backend / frontend (planned) | `...\pipeline\`, `...\backend\`, `...\frontend\` |
+| Library staging (planned) | `...\Library\00-Incoming → 01-Renamed → 02-Sanitized → 03-Audio` |
 
 ## Key architectural decisions
 
-| Decision | Rule | Rationale (see doc) |
+Detail and rationale live in the linked doc — this table is a lookup
+index, not a substitute for reading it.
+
+| Decision | Rule | Doc |
 |---|---|---|
-| GUI transport | Flask (served via `waitress`, not the dev server) + React (Vite build, bundled static) | `01-architecture.md` |
-| GUI process model | Background launcher opens default browser to a locally-running Flask server; **not** pywebview | Closing the tab must not kill a multi-hour audio job — `01-architecture.md` |
-| TTS engine | Local `kokoro` Python package (Kokoro-82M) — **no browser, no Selenium** | Perchance's browser TTS is this same model; direct call removes an entire fragile subsystem — `04-tts-engine.md` |
-| AI metadata enrichment | Google Gemini API, **free tier only** (Flash-Lite); never enable billing on that project | Zero cost at expected volume; enabling billing silently removes the free tier — `01-architecture.md`, `08-open-questions-and-assumptions.md` |
-| AI failure handling | Fall back to `NullProvider` (EPUB metadata passthrough) per-file on any AI error/rate-limit | Never block a batch on one file's API call — `02-pipeline-stages.md` |
-| Sanitize implementation | Ported from PowerShell to Python; **must preserve every security control** (path traversal on extract + repack, zip-bomb cap, XXE prevention, profanity-list size cap) | `02-pipeline-stages.md` |
-| Native folder pickers | `tkinter.filedialog`, invoked from the Flask backend, result handed to the React page | Browsers can't open native OS pickers or read arbitrary paths directly — `01-architecture.md` |
-| Voice selection timing | **Per book, after that book's metadata is resolved** — never at batch-start | A book's genre/identity isn't knowable until after renaming — `03-gui-ux-design.md` |
-| Voice selection UI (multi-book) | One table, one row per book, "Change Voice" opens the full picker overlay | `03-gui-ux-design.md` |
-| Voice default | Single global "last used voice" suggestion only — **no per-series/per-author memory** | Deliberately simplified; audit log is the fallback lookup — `03-gui-ux-design.md`, `05-data-settings-and-logging.md` |
-| Voice previews | Pre-generated once at first-run setup, cached, played back instantly — never regenerated per click | `04-tts-engine.md` |
-| Settings location | `%APPDATA%\EpubAutomation\settings.json` — **not** inside the install location | Must survive app updates and stay writable regardless of install location — `05-data-settings-and-logging.md` |
-| Profanity list | Bundled default copied into her personal settings on **first run only**, then fully independent | App updates must not silently overwrite her edits, and her edits must not affect the bundled default — `05-data-settings-and-logging.md` |
-| Input format | **`.epub` only** — validate real zip contents, not just the extension; reject other types individually without failing the batch | None of the underlying libraries reliably parse other formats — `06-safety-error-handling.md` |
-| Cancel vs. Pause | Two distinct actions. Pause = resume later, no cleanup. Cancel = confirm first, then choose keep-partial (default) vs. discard for that book only | `06-safety-error-handling.md` |
-| Retag stage | **Always manual**, never auto-run in a batch — triggered via a plain-language "does this look right?" prompt or run standalone later | `02-pipeline-stages.md`, `03-gui-ux-design.md` |
-| Audit log | One CSV across all stages (not per-stage reports), with a `stage` column and a `voice` column; doubles as the mother's own lookup tool for past choices | `05-data-settings-and-logging.md` |
-| Batch concurrency | Audio generation is **one book at a time**, never parallel | Resource contention + honest progress reporting — `02-pipeline-stages.md` |
-| Single-instance | Lock file; a second launch opens a new tab to the existing server instead of starting a second instance | `01-architecture.md`, `06-safety-error-handling.md` |
-| Progress reporting | Simple polling from React, not WebSockets | `03-gui-ux-design.md` |
-| Terminology | Her-facing UI never uses internal names ("stage," "sanitize," "AI provider," "retag," etc.) — see the mapping table in `03-gui-ux-design.md` | Accessibility persona — `00-overview-and-goals.md` |
+| GUI transport | Flask/waitress + React (Vite, static build) | `01-architecture.md`, ADR-0001 |
+| GUI process model | Background launcher opens browser to Flask; not pywebview — tab close ≠ job death | ADR-0001 |
+| Status contract | One polling endpoint; `state` derived from `books[]` via a fixed precedence rule (backend state-machine fn); frontend reads it via per-screen view-model hooks | `01-architecture.md` §State derivation |
+| TTS engine | Local `kokoro` (Kokoro-82M) — no browser/Selenium | `04-tts-engine.md`, ADR-0002 |
+| Kokoro download timing | Lazy — first real need, never eager at launch | `04-tts-engine.md` |
+| AI provider | Pluggable: Gemini / OpenAI / none — user-selected + keyed, neither is default. `ai_providers/` (base/registry/openai/null) ported verbatim from `epub-renamer`; only `gemini_provider.py` is new | ADR-0003, ADR-0014 |
+| AI failure handling | Falls back to `NullProvider` per-file; never blocks the batch | `02-pipeline-stages.md` |
+| MAX_FILES overflow | Excess books rejected individually at Screen 1, not silently dropped after Start | `06-safety-error-handling.md` |
+| Sanitize | PowerShell→Python port; preserve all 10 original security controls, incl. Unicode whole-word regex + ReDoS timeout (needs the `regex` package); shared Template Method zip-guard base | ADR-0004 |
+| Folder pickers | `tkinter.filedialog` via the Flask backend | ADR-0006 |
+| Voice selection | Per book, after metadata resolved; single global default + session-local same-series default; no persisted per-series memory | `03-gui-ux-design.md`, ADR-0010 |
+| Voice previews | Pre-generated once, cached, instant playback | `04-tts-engine.md` |
+| Settings | `%APPDATA%\EpubAutomation\settings.json`; atomic writes; `schema_version` field with a migration/mismatch policy | ADR-0005 |
+| Profanity list | Bundled default → personal copy on first run only, independent thereafter | `05-data-settings-and-logging.md` |
+| Input format | `.epub` only, content-validated not just by extension | ADR-0013 |
+| Cancel vs. Pause | Pause = resume later. Cancel = confirm, then keep-partial (default) or discard | `06-safety-error-handling.md` |
+| Retag | Always manual, never auto-run | `02-pipeline-stages.md` |
+| Audit log | One CSV, all stages, `stage` + `voice` columns | `05-data-settings-and-logging.md` |
+| Batch concurrency | Audio generation serial only; CLI reserves an unused `--workers N` | ADR-0009 |
+| Single-instance | Lock file with PID-based stale-lock detection — auto-clears a dead-process lock rather than blocking forever | ADR-0007 |
+| Network binding | `127.0.0.1` only, fixed constant, never configurable | ADR-0008 |
+| Progress reporting | Polling, not WebSockets | `03-gui-ux-design.md` |
+| Terminology | No internal jargon in her-facing UI | `03-gui-ux-design.md` |
+| Target platform | Windows-only v1 — confirmed, not just assumed | `00-overview-and-goals.md` |
+| Packaging | PyInstaller single `.exe`, no code signing purchased | ADR-0011 |
+| Packaging risk | Kokoro native-dependency (e.g. `espeak-ng`) unverified — spike in `docs/BACKLOG.md` Epic 1 | `07-packaging-deployment.md` |
+| Copyleft deps | `mutagen` (GPL) + `ebooklib` (AGPL) retained, documented explicitly | ADR-0012 |
+| Reuse principle | Port existing implementations by default; new code only for a real gap/fix | ADR-0014 |
+| Accessibility | WCAG 2.1 AA alignment (not certified) via shared hooks (`useFocusTrap`, `useAriaLiveThrottled`); automated tests + security-guard coverage are the CI floor, manual passes are best-effort | ADR-0015 |
 
-## Flagged open items (do not silently resolve these — confirm or surface them)
+## Flagged open items (confirm or surface — don't silently resolve)
 
-See `requirements/08-open-questions-and-assumptions.md` for full detail. In short:
+Full detail and history: `docs/requirements/08-open-questions-and-assumptions.md`
+and `docs/design/adr/README.md`. Each is a tracked `docs/BACKLOG.md` item.
 
 | Item | Status |
 |---|---|
-| Retag chapter-title derivation (filename-suffix-only vs. pulling real EPUB headings) | Undecided |
-| Kokoro vs. original Perchance output — quality/pacing parity | Needs a side-by-side listen before fully retiring the old approach conceptually |
-| CPU vs. GPU inference speed on the actual target machine | Needs benchmarking, not assumed |
-| Gemini free-tier data-use trade-off | Assumed acceptable, not yet explicitly confirmed by the user |
-| Windows-only v1 scope | Assumed, not yet explicitly confirmed |
-| No per-series voice memory | Decided, but flagged as worth a second look on reflection |
-| Exact wording of all her-facing copy | Drafted for tone, not final — needs a fresh read-through |
+| Kokoro vs. Perchance output parity | Side-by-side listen needed — Backlog Epic 4 |
+| CPU vs. GPU inference speed | Needs benchmarking on real hardware — Backlog Epic 4 |
+| No per-series voice memory | Decided; worth a second look after real use — Backlog Epic 9 |
+| Her-facing copy wording | Drafted for tone, not final — real unassisted dry-run needed — Backlog Epic 9 |
+| Screen-reader tester | Being pursued, not confirmed — never claim "validated by a blind user" until it happens — Backlog Epic 9 |
+| Kokoro native-dependency packaging risk | Unverified against pinned version — Backlog Epic 1 |
 
 ## Documentation & session close (once building starts)
 
-1. Treat `requirements/` as living documents during build — if implementation
-   reveals a requirement doc was wrong or incomplete, **update the doc**,
-   don't just diverge from it silently.
-2. Create `CODEBASE_INDEX.md` at repo root during the first build session
-   (file map + any migration/schema table), matching the pattern used in
-   sibling projects in this repos folder.
-3. Update the "Key architectural decisions" table above whenever a new
-   binding decision gets made during implementation that isn't already
-   covered by a requirement doc.
-4. Keep this file's header timestamp/summary line current, same convention
-   as sibling projects.
+1. Treat `docs/requirements/`, `docs/design/`, and `docs/BACKLOG.md` as
+   living documents — update them when implementation reveals a gap,
+   don't diverge silently. Update both sides of a requirement/ADR pair
+   together.
+2. Create `CODEBASE_INDEX.md` at repo root during the first build session.
+3. Add new binding decisions to the "Key architectural decisions" table
+   above, and a new ADR under `docs/design/adr/` if it clears the bar
+   (real alternatives considered, real tradeoffs accepted).
+4. Keep this file's header line current.
+5. **Every new frontend screen/component must satisfy
+   `03-gui-ux-design.md` §Accessibility: WCAG 2.1 AA alignment** before
+   being done — real focusable controls, labels, focus management,
+   `aria-live` wiring where relevant (ADR-0015).
+6. **New code should use the patterns in `docs/design/PATTERNS.md`**
+   rather than ad hoc structures — keeps future sessions consistent.
+7. **Mark items complete in `docs/BACKLOG.md` as they're worked**, and
+   add stories there when work surfaces that isn't captured yet.
