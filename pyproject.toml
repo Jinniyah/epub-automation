@@ -1,0 +1,46 @@
+[project]
+name = "epub-automation"
+version = "0.1.0"
+description = "Batch EPUB rename/sanitize/audio/retag pipeline with a CLI and an accessible local web GUI."
+authors = [{ name = "Jennifer" }]
+requires-python = ">=3.11"
+readme = "README.md"
+
+# --- Toolchain ported from epub-renamer (github.com/Jinniyah/epub-renamer),
+# not invented fresh for this project -- see docs/requirements/09-testing-strategy.md
+# "Backend: reuse the existing toolchain, don't invent a new one".
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+testpaths = ["tests"]
+markers = [
+    "slow: full end-to-end tests (e.g. real Kokoro generation) excluded from the default run -- see docs/requirements/09-testing-strategy.md",
+]
+
+# New for epub-automation (epub-renamer has no coverage gate yet):
+# --cov-fail-under=80 is passed on the command line (Makefile `coverage`
+# target / CI), not baked in here, so `pytest` alone still works locally
+# without requiring pytest-cov during quick iteration.
+[tool.coverage.run]
+source = ["pipeline", "backend"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

@@ -1,0 +1,32 @@
+# Runtime dependencies -- exactly pinned, not loose ranges (see
+# docs/requirements/08-open-questions-and-assumptions.md, "dependency
+# versions will be exactly pinned" -- kokoro/torch in particular can
+# silently change TTS output or break the PyInstaller build on a minor
+# bump; the same discipline is applied here from Epic 0 onward rather
+# than only once the audio stage lands in Epic 4).
+#
+# NOTE: google-generativeai (Epic 3) is not yet added -- pinned when Epic 3
+# introduces the import. kokoro/torch/espeakng-loader added below (Epic 1
+# spike confirmed all three; torch must be CPU-only variant from the PyTorch
+# index: pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu)
+kokoro==0.9.4
+espeakng-loader==0.2.4
+torch==2.12.1+cpu
+Flask==3.1.3
+waitress==3.0.2
+psutil==7.2.2
+EbookLib==0.20
+beautifulsoup4==4.14.3
+lxml==6.0.2
+mutagen==1.48.1
+regex==2026.6.28
+openai==2.44.0
+python-dotenv==1.2.2
+
+# Development / quality tools -- ported from epub-renamer's toolchain
+# (docs/requirements/09-testing-strategy.md), pytest-cov added new.
+pytest==9.1.1
+pytest-cov==7.1.0
+black==26.5.1
+ruff==0.15.20
+mypy==2.1.0

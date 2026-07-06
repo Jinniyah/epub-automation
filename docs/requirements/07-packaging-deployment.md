@@ -135,21 +135,51 @@ delay that appears regardless of whether that session ever needs it.
   (see `04-tts-engine.md`), the previously-planned "Chrome isn't
   installed" first-run check is no longer needed — this removes a
   dependency and a failure mode from the packaging story entirely.
-- **Kokoro's own native-dependency footprint, flagged during review, not
-  yet resolved:** ML packages like `kokoro` (PyTorch/ONNX-backed) are a
-  common source of PyInstaller hidden-import failures — dynamically
-  loaded extension modules and backend-selection logic that pure static
-  analysis can miss — and some Kokoro deployments additionally depend on
-  `espeak-ng`, a native (non-Python) binary, for grapheme-to-phoneme
-  conversion. Neither risk is confirmed one way or the other for the
-  specific `kokoro` version and the American/British-English-only voice
-  scope this project actually uses (`04-tts-engine.md` §Voice samples).
-  **Recommended before relying on the packaging plan above:** an early,
-  small spike — package a minimal "load Kokoro, generate one sample"
-  script with PyInstaller, before investing implementation time
-  elsewhere — specifically to confirm whether any native binary needs to
-  be located and bundled, and if so, add that bundling step here as a
-  named build requirement rather than discovering it late in packaging.
+- **Kokoro native-dependency footprint — confirmed by Epic 1 spike
+  (2026-07-06):**
+
+  `kokoro==0.9.4` uses `misaki[en]` for English grapheme-to-phoneme
+  conversion. `misaki[en]` depends on `espeakng-loader==0.2.4`, which
+  ships the `espeak-ng` binary as a Python wheel — **not** a system-level
+  install requirement. On Windows, this is `espeak-ng.dll` plus an
+  `espeak-ng-data/` directory (phoneme tables for all languages), both
+  located inside the `espeakng_loader` Python package directory.
+
+  Because `espeakng_loader` loads the DLL via `ctypes` at runtime rather
+  than linking it statically, PyInstaller's static analysis misses it.
+  The build must bundle it explicitly. **Named build requirements (add
+  to the PyInstaller command or `.spec` file):**
+
+  ```
+  --collect-data espeakng_loader   # includes espeak-ng.dll + espeak-ng-data/
+  --collect-all torch              # hidden imports for torch backend selection
+  --collect-all transformers       # tokenizer/model hidden imports
+  --collect-all kokoro             # ONNX session files, voice config
+  ```
+
+  The minimal working command is:
+  ```
+  pyinstaller --onefile \
+      --collect-data espeakng_loader \
+      --collect-all torch \
+      --collect-all transformers \
+      --collect-all kokoro \
+      spike/kokoro_spike.py
+  ```
+  (See `spike/kokoro_spike.py` for the full spike script and usage notes.)
+
+  **Size implication:** `torch==2.12.1+cpu` alone is ~750MB of packages;
+  the full dependency graph (`torch` + `transformers` + `spacy` +
+  `espeakng_loader` + `kokoro`) means the packaged `.exe` will be
+  significantly larger than a typical Python app — multi-gigabyte is
+  expected. This is consistent with the design's statement that `.exe`
+  size is "expected and not a bug to chase down."
+
+  **Remaining to-do (not yet done):** the actual PyInstaller build and
+  end-to-end `.exe` test (launch the built exe, confirm it generates
+  audio without error). The spike script at `spike/kokoro_spike.py`
+  runs correctly in the venv — the packaging step is the only remaining
+  verification. Tracked in `docs/BACKLOG.md` Epic 1.
 
 ## Uninstalling
 

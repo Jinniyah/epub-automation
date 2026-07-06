@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (lint, typecheck, test, coverage)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint (ruff + black --check)
+        run: |
+          ruff check .
+          black --check .
+
+      - name: Typecheck (mypy --strict)
+        run: mypy .
+
+      - name: Test + coverage (80% floor, docs/requirements/09-testing-strategy.md)
+        run: >
+          pytest -v -m "not slow"
+          --cov=pipeline --cov=backend
+          --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=80
+
+      # A coverage badge in the README is a small, cheap addition that
+      # makes this visible at a glance (09-testing-strategy.md §CI
+      # enforcement) -- wired up properly in Epic 11's documentation pass;
+      # the coverage.xml artifact above is what a badge action would read.
+
+  # Frontend job (Vitest + React Testing Library, axe-core, eslint-plugin-
+  # jsx-a11y -- docs/requirements/09-testing-strategy.md) is added in
+  # Epic 7 once frontend/ actually exists as a real Vite project. Adding
+  # an empty/placeholder job here now would just be a job that always
+  # trivially passes, which is worse than no job at all for a portfolio
+  # piece's CI signal -- see docs/BACKLOG.md Epic 7.

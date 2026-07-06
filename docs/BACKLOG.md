@@ -1,7 +1,9 @@
 # epub-automation — Implementation Backlog
 
-Status: build not yet started. This is the source of truth for *what
-order* things get built in — `docs/requirements/` is *what*,
+Status: Epics 0, 1 (spike), and 2 complete (see `CODEBASE_INDEX.md` for
+the file map). Epic 1 full PyInstaller build+exe test still to-do (see
+Epic 1 stories). Epic 3+ not yet started. This is the source of truth for
+*what order* things get built in — `docs/requirements/` is *what*,
 `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*, this file
 is *in what order and why that order*.
 
@@ -32,38 +34,70 @@ conversation if implementation surfaces work not already captured — see
 
 ---
 
-## Epic 0 — Scaffolding & Cross-Cutting Infrastructure
+## Epic 0 — Scaffolding & Cross-Cutting Infrastructure ✅ Complete
 
 Nothing here is stage-specific; it's the seams every later epic builds
 on top of. Do this first so `docs/design/PATTERNS.md`'s patterns exist
 as real interfaces before any stage logic is written against them.
 
-- [ ] Repo structure matching `docs/requirements/01-architecture.md`
+**Reconciliation note (found during this session):**
+`08-open-questions-and-assumptions.md`'s "dependency versions will be
+exactly pinned" item said "Tracked as a backlog item — see
+`docs/BACKLOG.md` Epic 0," but no such story actually existed here yet.
+Added below and completed in the same session, per `CLAUDE.md`'s
+living-document rule (`docs/requirements/`, `docs/design/`, and this
+file are kept reconciled with each other).
+
+- [x] Repo structure matching `docs/requirements/01-architecture.md`
   §Project structure (`pipeline/`, `backend/`, `frontend/`, `main.py`,
-  `launcher.py`, `tests/`, etc.)
-- [ ] `Stage` protocol/interface (Pipeline pattern — `PATTERNS.md` §1
+  `launcher.py`, `tests/`, etc.) — stage-specific files
+  (`rename_stage.py`, `sanitize_stage.py`, `audio_stage.py`,
+  `retag_stage.py`, `tts_engine.py`, `epub_reader.py`, `epub_utils.py`,
+  `ai_providers/`) deliberately left uncreated for their own epics
+  (2–5) rather than stubbed out here; `frontend/` is a placeholder
+  README only, real scaffold in Epic 7
+- [x] `Stage` protocol/interface (Pipeline pattern — `PATTERNS.md` §1
   sketch) with a minimal fake implementation and a test proving the
-  interface itself is sufficient (not just concrete stages later)
-- [ ] `Repository` wrappers for `state_manager.py` and
+  interface itself is sufficient (not just concrete stages later) —
+  `pipeline/stage.py`, `tests/test_stage.py`
+- [x] `Repository` wrappers for `state_manager.py` and
   `audit_logger.py` (PATTERNS.md §1), including `schema_version`
   read/write and the migration/mismatch policy from
-  `05-data-settings-and-logging.md` §Schema versioning
-- [ ] Atomic write-to-temp-then-rename helper for `settings.json` and
+  `05-data-settings-and-logging.md` §Schema versioning —
+  `pipeline/state_manager.py`, `pipeline/audit_logger.py`
+- [x] Atomic write-to-temp-then-rename helper for `settings.json` and
   the state file (ADR-0005) — TDD with a simulated crash-mid-write test
-  (`09-testing-strategy.md` §TDD workflow)
-- [ ] Single-instance lock with **PID-based stale-lock detection**
+  (`09-testing-strategy.md` §TDD workflow) — `pipeline/atomic_write.py`,
+  `tests/test_atomic_write.py`
+- [x] Single-instance lock with **PID-based stale-lock detection**
   (ADR-0007, `01-architecture.md` §Single-instance behavior) — TDD with
   a simulated dead-PID scenario proving the lock clears and the launch
-  proceeds
-- [ ] `SafeZipOperation` Template Method base (PATTERNS.md §1) — guard
+  proceeds — `pipeline/single_instance.py`, `tests/test_single_instance.py`
+  (uses `psutil` for cross-platform PID/process-name checks — see
+  `CODEBASE_INDEX.md`'s session notes)
+- [x] `SafeZipOperation` Template Method base (PATTERNS.md §1) — guard
   order: path-traversal → zip-bomb cap → XXE prevention, fixed and
-  reused by every future zip-opening call site
-- [ ] CI skeleton: `pytest` + `pytest-cov` (`--cov-fail-under=80`),
+  reused by every future zip-opening call site — `pipeline/safe_zip.py`,
+  `tests/test_safe_zip.py` (adversarial fixtures: path traversal, zip
+  bomb via size cap and via compression ratio, XXE)
+- [x] CI skeleton: `pytest` + `pytest-cov` (`--cov-fail-under=80`),
   `black`, `ruff`, `mypy --strict` — ported from `epub-renamer`'s
-  existing toolchain, not invented fresh (`09-testing-strategy.md`)
-- [ ] `profanity.txt` bundling + first-run copy-into-`settings.json`
-  mechanism (`05-data-settings-and-logging.md` §Profanity list)
-- [ ] `.env.example` for CLI/advanced use (`01-architecture.md`)
+  existing toolchain, not invented fresh (`09-testing-strategy.md`) —
+  `pyproject.toml`, `Makefile`, `.github/workflows/ci.yml` (backend job;
+  frontend job deferred to Epic 7 rather than stubbed as an always-green
+  placeholder)
+- [x] `profanity.txt` bundling + first-run copy-into-`settings.json`
+  mechanism (`05-data-settings-and-logging.md` §Profanity list) —
+  `pipeline/profanity.txt` (ported verbatim from `epub-sanitize`),
+  `pipeline/config.py`, `tests/test_config.py`
+- [x] `.env.example` for CLI/advanced use (`01-architecture.md`)
+- [x] **Exactly pin dependency versions** (a lockfile-style pin, not
+  loose ranges) for every dependency Epic 0 actually introduces —
+  `requirements.txt`. `kokoro`/`torch` (Epic 1/4) and
+  `google-generativeai` (Epic 3) intentionally not yet listed; pinned
+  when those epics introduce the import, not speculatively here (see
+  `08-open-questions-and-assumptions.md`'s "New items found during a
+  post-backlog-kickoff review" §Decided outright)
 
 ---
 
@@ -73,49 +107,58 @@ The one open item with real architectural blast radius if it goes
 badly — sequenced early specifically so a bad answer here can still
 change downstream decisions cheaply.
 
-- [ ] Minimal PyInstaller build that imports `kokoro`, loads the model,
-  and generates one sample MP3
-- [ ] Confirm or rule out a native (non-Python) dependency — e.g.
-  `espeak-ng` — for the American/British-English voice scope this
-  project actually uses (`04-tts-engine.md` §Voice samples)
-- [ ] If a native dependency exists: add the bundling step to
-  `07-packaging-deployment.md` §Known packaging constraints as a named
-  build requirement
-- [ ] Update `CLAUDE.md`'s "Packaging risk: Kokoro native deps" row and
-  `docs/design/SYSTEM_DESIGN.md` §8/§9 with the finding either way
+**Completed 2026-07-06 (spike portion). Remaining: full PyInstaller build+exe test.**
+
+- [ ] **Remaining:** Actual PyInstaller build + end-to-end `.exe` test —
+  install `pyinstaller` in venv, run the build command from
+  `spike/kokoro_spike.py`'s docstring, launch `dist/kokoro_spike.exe`,
+  confirm `spike_output.wav` is produced. See
+  `07-packaging-deployment.md` §Known packaging constraints for the
+  exact flags needed.
+- [x] Minimal spike script that imports `kokoro`, loads the model, and
+  generates one sample WAV — `spike/kokoro_spike.py` (Step 1 complete;
+  runs cleanly in the venv)
+- [x] Confirm or rule out a native (non-Python) dependency — espeak-ng
+  IS required, shipped via `espeakng-loader==0.2.4` as a Python wheel
+  (`espeak-ng.dll` + `espeak-ng-data/`); DLL loads correctly via ctypes
+- [x] Named build requirements added to `07-packaging-deployment.md`
+  §Known packaging constraints (`--collect-data espeakng_loader`,
+  `--collect-all torch/transformers/kokoro`)
+- [x] `CLAUDE.md` "Packaging risk" row and `docs/design/SYSTEM_DESIGN.md`
+  §8/§9 updated with confirmed finding (2026-07-06)
 
 ---
 
-## Epic 2 — Sanitize Stage Port (PowerShell → Python)
+## Epic 2 — Sanitize Stage Port (PowerShell → Python) ✅ Complete (2026-07-06)
 
 Highest risk of the four stages: the only genuine language port, and
 security-critical (untrusted, user-supplied ZIP archives). Do this
 first among the stages while it has full attention, not last as
 "just a port." See ADR-0004.
 
-- [ ] Port all ten security controls from `PS_Run-CleanUpEpub.ps1`
+- [x] Port all ten security controls from `PS_Run-CleanUpEpub.ps1`
   exactly (`02-pipeline-stages.md` §Stage 2, ADR-0004): path-traversal
   guard (extract + repack), zip-bomb cap, XXE prevention, profanity-list
   size cap, whole-word matching, asterisk replacement, `.xhtml`/`.htm`/
   `.html` scope, mimetype-first uncompressed repack, temp-dir atomic
-  cleanup
-- [ ] Adopt the `regex` package (or equivalent) for the Unicode-category
-  whole-word matching **and** its 5-second ReDoS execution timeout —
-  Python's stdlib `re` supports neither (found during the design
-  review; see ADR-0004's "Regex/dependency note" and
-  `10-licensing-and-notices.md`'s proposed dependency entry)
-- [ ] Build `sanitize_stage.py` on top of the `SafeZipOperation`
-  Template Method from Epic 0
-- [ ] Sidecar CSV report (`CleanReport_<timestamp>.csv`,
-  `(book, file, word, count)` rows) + aggregate `words_replaced` /
+  cleanup — `pipeline/sanitize_stage.py`
+- [x] Adopt the `regex` package for Unicode-category whole-word matching
+  **and** 5-second ReDoS execution timeout — `regex==2026.6.28`,
+  Apache-2.0, confirmed in `10-licensing-and-notices.md`
+- [x] Built `sanitize_stage.py` on top of `SafeZipOperation` Template
+  Method from Epic 0 (`_ExtractEpub` subclass)
+- [x] Sidecar CSV report (`CleanReport<suffix>_<timestamp>.csv`,
+  `(Epub, File, Word, Count)` rows) + `words_replaced` /
   `sanitize_detail_report` audit-log columns (`02-pipeline-stages.md`
-  §Stage 2)
-- [ ] Adversarial fixtures: a path-traversal zip, a zip bomb, an XXE
-  payload, and a pathological profanity-list entry proving the ReDoS
-  timeout actually fires — target near-100% coverage on this stage
-  (`09-testing-strategy.md` §Priority coverage areas)
-- [ ] Editable word-list read/write against `settings.json`'s
-  `profanity_words` (`05-data-settings-and-logging.md`)
+  §Stage 2) — columns already in `pipeline/audit_logger.py::COLUMNS`
+  from Epic 0; `write_report()` returns `Path | None`
+- [x] 29-test adversarial suite covering all 10 controls: path-traversal,
+  zip bomb (size cap + ratio), XXE payload, ReDoS timeout (1µs monkeypatch
+  + 50k occurrences), profanity-list cap, Unicode boundaries, whole-word
+  guard, `.xhtml` scope, mimetype-first repack, temp-dir cleanup —
+  `tests/test_sanitize_stage.py`; all 82 project tests pass
+- [x] Editable word-list read from `settings.json`'s `profanity_words`
+  (via `SettingsRepository`, same path as Epic 0's config)
 
 ---
 
@@ -209,7 +252,10 @@ first among the stages while it has full attention, not last as
 - [ ] `launcher.py`: waitress bind to `127.0.0.1` only (fixed constant,
   ADR-0008), free-port discovery, single-instance lock acquisition
   (Epic 0), browser-launch with retry-then-native-fallback
-  (`07-packaging-deployment.md` §Browser-launch fallback)
+  (`07-packaging-deployment.md` §Browser-launch fallback) — Epic 0
+  already delivered a scaffold version of this (fixed bind + lock around
+  a placeholder app); this epic adds free-port discovery and the real
+  fallback behavior
 - [ ] `backend/app.py` routes + `backend/dialogs.py`
   (`tkinter.filedialog` bridge, ADR-0006)
 - [ ] `backend/bridge.py` — thin Adapter into `pipeline/` (ADR-0001,
@@ -223,7 +269,9 @@ first among the stages while it has full attention, not last as
   an HTTP server exists
 - [ ] `main.py` CLI: thin Adapter mirroring `bridge.py`'s role; reserve
   `--workers N` (default `1`) on the `audio` command without
-  implementing parallelism yet (ADR-0009)
+  implementing parallelism yet (ADR-0009) — Epic 0 already delivered
+  argument parsing and the `--workers` validation/default; this epic
+  wires it to real stage calls
 - [ ] Error communication: generic "Something went wrong" + "Copy
   details for support" bundle, built from settings with sensitive
   fields stripped (`ai_api_key` never included), degrading gracefully
@@ -252,6 +300,9 @@ first among the stages while it has full attention, not last as
   requirement (PATTERNS.md §2)
 - [ ] Container/Presentational split: one top-level container owns
   `usePollingStatus()`; screens receive plain props (PATTERNS.md §2)
+- [ ] Add the frontend CI job (Vitest + coverage, `axe-core`,
+  `eslint-plugin-jsx-a11y`) to `.github/workflows/ci.yml` alongside the
+  backend job from Epic 0
 
 ---
 
@@ -335,8 +386,11 @@ focus management, `aria-live` wiring where relevant.
 
 ## Epic 11 — Documentation & Release Wrap-Up
 
-- [ ] `CODEBASE_INDEX.md` at repo root (file map + migration/schema
-  table), per `CLAUDE.md` §Documentation & session close #2
+- [x] `CODEBASE_INDEX.md` at repo root (file map + migration/schema
+  table), per `CLAUDE.md` §Documentation & session close #2 — created
+  during Epic 0's build session (this is genuinely the first build
+  session, matching the trigger condition for this item), kept current
+  as later epics land
 - [ ] `NOTICE` file at repo root, generated from
   `10-licensing-and-notices.md`'s dependency table (confirm the `regex`
   package's actual license once chosen in Epic 2)
@@ -363,3 +417,4 @@ it's actually resolved:
 | Her-facing copy wording, real unassisted dry-run test | Epic 9 |
 | Screen-reader tester confirmation | Epic 9 |
 | Per-series voice memory, second look | Epic 9 |
+| Dependency version pinning | Epic 0 (done) |

@@ -361,3 +361,42 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+## -----------------------------------------------------------------
+## epub-automation additions (Epic 0) -- Python/Node toolchain + this
+## project's own runtime data directory. Added alongside the VS
+## defaults above rather than replacing them, since this repo mixes a
+## Python/React project with a Visual-Studio-managed solution.
+## -----------------------------------------------------------------
+
+# Python virtual environment
+.venv/
+venv/
+
+# Python bytecode / packaging (in addition to the PTVS entry above)
+*.egg-info/
+.eggs/
+
+# Test / lint / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Frontend (Epic 7) -- Vite build output and npm's local cache;
+# node_modules/ is already covered above
+frontend/dist/
+.vite/
+
+# Secrets -- CLI/advanced-use env file (settings.json itself lives
+# under %APPDATA%\EpubAutomation\, never in the repo -- see
+# docs/requirements/05-data-settings-and-logging.md)
+.env
+
+# This project's own runtime data directory, for anyone who ever runs
+# it with the working directory pointed at the repo during local dev
+# instead of %APPDATA%\EpubAutomation\ -- never intended to be
+# committed either way (ADR-0005)
+Library/

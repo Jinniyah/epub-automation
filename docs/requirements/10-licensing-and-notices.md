@@ -81,20 +81,15 @@ substitute for one.
 | `beautifulsoup4` | MIT | Permissive |
 | `soundfile` | BSD-3-Clause | Permissive (wraps `libsndfile`, which is LGPL — LGPL is specifically designed to permit this kind of bundling without the larger program needing to adopt it, unlike GPL/AGPL; still listed here for accuracy) |
 | `tkinter` | PSF License (Python stdlib) | Permissive |
-| `regex` (proposed — see note) | Apache-2.0 (confirm against the exact pinned version before publishing) | Permissive, pending confirmation |
+| `regex==2026.6.28` | Apache-2.0 (confirmed against the PyPI metadata for this version) | Permissive |
 | PyInstaller | GPL with a linking exception for compiled output | Permissive in effect — PyInstaller's own license explicitly exempts programs built with it from needing to be GPL themselves; worth a final check against PyInstaller's actual current license text before publishing, rather than trusting this summary alone |
 
-**New entry, added during the final pre-coding design review:** the
-sanitize stage's ported whole-word-matching regex relies on Unicode-
-category character classes and a per-match execution timeout
-(`02-pipeline-stages.md` §Stage 2, ADR-0004) that Python's stdlib `re`
-module doesn't support — the most likely fix is adopting the third-party
-`regex` package. It's listed here as *proposed* rather than confirmed,
-since the exact package (and its exact license text for the version
-actually pinned) should be locked down when the sanitize port is
-actually implemented, not assumed now — consistent with this file's own
-standard of checking a license directly rather than trusting a
-secondhand description of it.
+**Updated (Epic 2, 2026-07-06):** the `regex` entry was listed as
+*proposed* at design time. It is now confirmed: `regex==2026.6.28` is
+pinned in `requirements.txt`, Apache-2.0 per the PyPI metadata for that
+version, and actively used by `pipeline/sanitize_stage.py` for
+Unicode-aware whole-word matching with a ReDoS timeout. The entry in the
+table above has been updated to reflect this.
 
 This table is the source for the actual `NOTICE` file shipped in the
 repo (see below) — keep both in sync if dependencies change.
@@ -137,7 +132,7 @@ React — MIT License
 Vite — MIT License
 beautifulsoup4 — MIT License
 soundfile — BSD-3-Clause (wraps libsndfile, LGPL)
-regex — Apache License 2.0 (confirm exact version's license before publishing)
+regex==2026.6.28 — Apache License 2.0 (confirmed for this version)
 PyInstaller — GPL with linking exception for compiled output
 
 Full license texts for each dependency are available from their

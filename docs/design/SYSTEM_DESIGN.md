@@ -501,15 +501,17 @@ or networked instance (ADR-0008, ADR-0007). New-machine migration is
 explicitly out of scope: a fresh install plus re-pointing "Change my
 folders" is the supported path.
 
-**Packaging risk flagged, not yet resolved (added during the pre-coding
-design review):** whether the pinned `kokoro` package pulls in a native
-(non-Python) dependency — e.g. `espeak-ng`, used by some Kokoro
-deployments for grapheme-to-phoneme conversion — for the American/British
-English voice scope this project actually uses has not been verified.
-If it does, that's a PyInstaller bundling concern beyond "the exe will be
-large." See `docs/requirements/07-packaging-deployment.md` §Known
-packaging constraints for the recommended early spike, and §9 below —
-sequenced as an early spike in `docs/BACKLOG.md` (Epic 1).
+**Packaging risk resolved by Epic 1 spike (2026-07-06):** `kokoro==0.9.4`
+requires `misaki[en]` → `espeakng-loader==0.2.4`, which ships
+`espeak-ng.dll` + `espeak-ng-data/` as a Python wheel. This IS the native
+dependency flagged in the pre-coding design review. Since it is loaded via
+ctypes at runtime, PyInstaller's static analysis misses it — the build
+must explicitly bundle it with `--collect-data espeakng_loader` plus
+`--collect-all torch/transformers/kokoro`. The resulting `.exe` will be
+multi-gigabyte (torch alone is ~750MB of packages). The actual PyInstaller
+build+exe verification is the remaining to-do (see `spike/kokoro_spike.py`
+and `docs/requirements/07-packaging-deployment.md` §Known packaging
+constraints for the full named build requirements).
 
 ## 9. Known Gaps / Deferred Decisions
 
@@ -525,7 +527,7 @@ item in `docs/BACKLOG.md`, not just a design-doc footnote:
 | `MAX_CHUNK_CHARS = 4,000` inherited from Perchance-tuning, not re-validated for Kokoro | §5 audio stage |
 | Exact her-facing copy wording drafted for tone, not user-tested | §7.3 |
 | Screen-reader tester not yet confirmed — until then, the WCAG 2.1 AA alignment's screen-reader side is "designed and tested against criteria," not "validated by a blind user" | §7.3, ADR-0015 |
-| Whether `kokoro`'s dependency chain requires bundling a native binary (e.g. `espeak-ng`) alongside the PyInstaller `.exe`, not yet verified against the pinned version | §8 Deployment View, `docs/requirements/07-packaging-deployment.md` |
+| **Resolved (Epic 1, 2026-07-06):** `kokoro==0.9.4` → `espeakng-loader==0.2.4` ships `espeak-ng.dll` + data as a wheel; PyInstaller needs `--collect-data espeakng_loader` + `--collect-all torch/transformers/kokoro`; full build+exe test still to-do | §8 Deployment View, `spike/kokoro_spike.py`, `07-packaging-deployment.md` |
 
 **Resolved since the last version of this table** (confirmed by the user
 at backlog kickoff, see `docs/requirements/08-open-questions-and-

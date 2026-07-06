@@ -1,15 +1,17 @@
 # CLAUDE.md — AI Development Rules for epub-automation
-# Last updated: 2026-07-05 — Design phase complete, no code written. Full design in `docs/requirements/` + `docs/design/` (SYSTEM_DESIGN, ADRs, PATTERNS.md); reviewed in `docs/design_review.md`; sequenced in `docs/BACKLOG.md`. All open assumptions confirmed except the items in "Flagged open items" below. Still pending: a build-start session.
+# Last updated: 2026-07-06 — Epics 1 (Kokoro spike) and 2 (sanitize port) in progress. Epic 1 confirmed: espeak-ng IS required via espeakng-loader (bundled DLL+data; see 07-packaging-deployment.md for named PyInstaller args); PyInstaller build+exe test still to-do. Epic 2 complete: pipeline/sanitize_stage.py ports all 10 security controls (regex Unicode whole-word + TimeoutError fix, lxml XML processing, temp-dir atomic cleanup, sidecar CSV); 29 tests pass including adversarial fixtures. 82 total tests pass. Next up: Epic 1 PyInstaller build verification, then Epic 3 (rename stage).
 
 ---
 
 ## Startup protocol
 
-1. **No code exists yet.** Before writing any, read in order:
+1. **Epic 0 is complete; Epics 1+ are not started.** Before writing any
+   new stage/backend/frontend code, read in order:
    `docs/requirements/README.md` → numbered docs 00–10 →
    `docs/design/SYSTEM_DESIGN.md` → `docs/design/adr/README.md` →
    `docs/design/PATTERNS.md` (implementation patterns to build against)
-   → `docs/BACKLOG.md` (what order to build it in). `docs/design_review.md`
+   → `docs/BACKLOG.md` (what order to build it in) → `CODEBASE_INDEX.md`
+   (what already exists vs. what's still a placeholder). `docs/design_review.md`
    explains why several decisions below look the way they do.
 2. Check `docs/requirements/08-open-questions-and-assumptions.md` and
    this file's "Flagged open items" table first. Don't build against an
@@ -18,7 +20,9 @@
    reconciled with each other — if a change to one affects another,
    update both, don't let them drift.
 4. Create `CODEBASE_INDEX.md` at repo root during the first build
-   session (file map, migration table), matching sibling projects.
+   session (file map, migration table), matching sibling projects. Done
+   as of Epic 0 — keep it current as later epics add real stage/backend/
+   frontend files in place of placeholders.
 5. **Apply the patterns in `docs/design/PATTERNS.md`** when writing
    pipeline/backend/frontend code (the `Stage` interface, `Strategy`/
    `Registry` for `ai_providers/`, `Repository` wrappers, the
@@ -81,7 +85,8 @@ verbatim-vs-new accounting. The one large exception is the WCAG layer
 | Patterns (*how*) | `...\docs\design\PATTERNS.md` |
 | Final pre-coding review | `...\docs\design_review.md` |
 | Backlog (*what order*) | `...\docs\BACKLOG.md` |
-| Pipeline / backend / frontend (planned) | `...\pipeline\`, `...\backend\`, `...\frontend\` |
+| Codebase file map (*what exists*) | `...\CODEBASE_INDEX.md` |
+| Pipeline / backend / frontend | `...\pipeline\`, `...\backend\`, `...\frontend\` (Epic 0 scaffolding in place; stage/route/UI logic per `CODEBASE_INDEX.md`) |
 | Library staging (planned) | `...\Library\00-Incoming → 01-Renamed → 02-Sanitized → 03-Audio` |
 
 ## Key architectural decisions
@@ -111,15 +116,17 @@ index, not a substitute for reading it.
 | Audit log | One CSV, all stages, `stage` + `voice` columns | `05-data-settings-and-logging.md` |
 | Batch concurrency | Audio generation serial only; CLI reserves an unused `--workers N` | ADR-0009 |
 | Single-instance | Lock file with PID-based stale-lock detection — auto-clears a dead-process lock rather than blocking forever | ADR-0007 |
+| Single-instance implementation | `psutil` used for cross-platform PID/process-name liveness checks (Epic 0 implementation detail, not itself ADR-worthy) | `pipeline/single_instance.py`, `CODEBASE_INDEX.md` |
 | Network binding | `127.0.0.1` only, fixed constant, never configurable | ADR-0008 |
 | Progress reporting | Polling, not WebSockets | `03-gui-ux-design.md` |
 | Terminology | No internal jargon in her-facing UI | `03-gui-ux-design.md` |
 | Target platform | Windows-only v1 — confirmed, not just assumed | `00-overview-and-goals.md` |
 | Packaging | PyInstaller single `.exe`, no code signing purchased | ADR-0011 |
-| Packaging risk | Kokoro native-dependency (e.g. `espeak-ng`) unverified — spike in `docs/BACKLOG.md` Epic 1 | `07-packaging-deployment.md` |
+| Packaging risk | **Confirmed (Epic 1 spike, 2026-07-06):** espeak-ng IS required via `espeakng-loader` (ships `espeak-ng.dll` + `espeak-ng-data/` as a Python wheel). PyInstaller must use `--collect-data espeakng_loader` plus `--collect-all torch/transformers/kokoro`. Full build+exe test still to-do. | `07-packaging-deployment.md`, `spike/kokoro_spike.py` |
 | Copyleft deps | `mutagen` (GPL) + `ebooklib` (AGPL) retained, documented explicitly | ADR-0012 |
 | Reuse principle | Port existing implementations by default; new code only for a real gap/fix | ADR-0014 |
 | Accessibility | WCAG 2.1 AA alignment (not certified) via shared hooks (`useFocusTrap`, `useAriaLiveThrottled`); automated tests + security-guard coverage are the CI floor, manual passes are best-effort | ADR-0015 |
+| Dependency pinning | Exact versions, not ranges, in `requirements.txt` — added to `docs/BACKLOG.md` Epic 0 during that session (was referenced from `08-open-questions-and-assumptions.md` but missing as an actual story) | `08-open-questions-and-assumptions.md`, `CODEBASE_INDEX.md` |
 
 ## Flagged open items (confirm or surface — don't silently resolve)
 
@@ -142,6 +149,8 @@ and `docs/design/adr/README.md`. Each is a tracked `docs/BACKLOG.md` item.
    don't diverge silently. Update both sides of a requirement/ADR pair
    together.
 2. Create `CODEBASE_INDEX.md` at repo root during the first build session.
+   Done as of Epic 0 — update it whenever a placeholder file listed
+   there becomes a real implementation.
 3. Add new binding decisions to the "Key architectural decisions" table
    above, and a new ADR under `docs/design/adr/` if it clears the bar
    (real alternatives considered, real tradeoffs accepted).
