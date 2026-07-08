@@ -58,7 +58,7 @@ def main() -> None:
 
     # 2. Import KPipeline — this triggers misaki's phonemizer init.
     print("Step 2: import KPipeline...")
-    from kokoro import KPipeline  # type: ignore[import-untyped]
+    from kokoro import KPipeline
 
     print("  OK\n")
 
@@ -81,7 +81,7 @@ def main() -> None:
     # 5. Save the first chunk as a WAV for manual verification.
     print("Step 5: save spike_output.wav...")
     try:
-        import soundfile as sf  # type: ignore[import-untyped]
+        import soundfile as sf
 
         _graphemes, _phonemes, audio = chunks[0]
         out = Path("spike_output.wav")
