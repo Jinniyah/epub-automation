@@ -44,7 +44,7 @@ kept current as later epics land real stage/backend/frontend code.
 | `pyproject.toml` | Toolchain config, ported from `epub-renamer` + coverage config added. | Epic 0 |
 | `requirements.txt` | Exactly pinned dependencies (see §Migration/schema table note below). | Epic 0 |
 | `Makefile` | Ported from `epub-renamer`, `coverage` target added (80% floor). | Epic 0 |
-| `.github/workflows/ci.yml` | Backend CI job (lint/typecheck/test/coverage). Frontend job deferred to Epic 7. | Epic 0 |
+| `.github/workflows/ci.yml` | Backend CI job (lint/typecheck/test/coverage). `pip install` step includes `--extra-index-url` for PyTorch CPU wheels (fixed 2026-07-08, see notes below). Frontend job deferred to Epic 7. | Epic 0 |
 | `.env.example` | CLI/advanced-use env vars. | Epic 0 |
 
 ## Schema / migration table
@@ -105,3 +105,20 @@ row to this table.
   The `+cpu` local version label is part of the version string.
 - All 82 project tests pass after Epic 2; coverage and lint status
   confirmed before the session ended.
+
+## Notes carried from 2026-07-08 CI fix session
+
+- **CI broke on `torch==2.12.1+cpu`:** the note above (torch needs the
+  PyTorch CPU index) was captured here during Epic 1+2 but never actually
+  wired into `.github/workflows/ci.yml` -- the install step was still a
+  plain `pip install -r requirements.txt`, which only checks PyPI and
+  fails with "No matching distribution found for torch==2.12.1+cpu"
+  (PyPI has no `+cpu` build for that version, only the plain-CUDA one and
+  earlier releases). Fixed by adding
+  `--extra-index-url https://download.pytorch.org/whl/cpu` to the install
+  step. Used `--extra-index-url`, not `--index-url`, so the rest of
+  `requirements.txt` still resolves from PyPI as normal -- only `torch`
+  (and any future PyTorch-ecosystem pin) falls through to the CPU wheel
+  index. Lesson: a note in this file describing a fix doesn't mean the
+  fix shipped -- check the actual CI config, not just the documentation
+  trail, when a dependency-resolution error recurs.
