@@ -400,3 +400,6 @@ frontend/dist/
 # instead of %APPDATA%\EpubAutomation\ -- never intended to be
 # committed either way (ADR-0005)
 Library/
+/dist
+/build/kokoro_spike
+/spike/spike_output.wav
