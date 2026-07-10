@@ -84,15 +84,31 @@ the parameters are ours to set:
 - **Mono (1 channel)** — spoken word has no stereo content to preserve;
   mono halves file size versus stereo at the same bitrate for no audible
   quality loss on narration.
-- **48 kHz sample rate**
+- **24 kHz sample rate — Kokoro-82M's native output rate** (corrected
+  during Epic 4 implementation; an earlier draft of this section said
+  48kHz before Kokoro's actual output rate had been confirmed by a real
+  spike run — the Epic 1 spike that later verified this already hardcodes
+  `samplerate=24000`). Upsampling to 48kHz would add a resampling
+  dependency for no real fidelity gain (you can't recover detail that
+  was never captured at 24kHz), so encoding stays at the model's native
+  rate rather than manufacturing a number to match this doc.
+- **MP3 encoding library, resolved during Epic 4 implementation:**
+  `soundfile`/libsndfile's MP3 writer (used for the WAV-writing spike in
+  Epic 1) only exposes a `compression_level` quality knob (0.0-0.9), not
+  a real bitrate control — measured ~21kbps at its highest setting during
+  implementation, nowhere near 128kbps CBR. `lameenc` (a compiled LAME
+  binding, prebuilt Windows wheels, no subprocess/external binary — same
+  packaging shape as `espeakng-loader`) hits exact CBR bitrates and is
+  used instead for actual MP3 encoding; `soundfile` remains for the
+  WAV-based spike verification only.
 
-These three numbers matter beyond audio quality — bitrate alone
-deterministically fixes the byte rate of the output, which is what makes
-the disk-space estimate in `06-safety-error-handling.md` §Resource & cost
-safety possible to compute at all: 128,000 bits/sec ÷ 8 = **16,000
-bytes/sec of audio, always**, regardless of voice or content (sample rate
-doesn't independently change this for constant-bitrate encoding — it
-affects fidelity, not file size).
+These numbers matter beyond audio quality — bitrate alone deterministically
+fixes the byte rate of the output, which is what makes the disk-space
+estimate in `06-safety-error-handling.md` §Resource & cost safety possible
+to compute at all: 128,000 bits/sec ÷ 8 = **16,000 bytes/sec of audio,
+always**, regardless of voice or content (sample rate doesn't
+independently change this for constant-bitrate encoding — it affects
+fidelity, not file size).
 
 ## First-run setup
 
@@ -123,8 +139,8 @@ affects fidelity, not file size).
   described above rather than at every app launch — see
   `07-packaging-deployment.md` §First-run setup requirements for how this
   screen is framed when it actually appears.
-- New dependencies: `kokoro`, `soundfile`. Removed dependencies:
-  `selenium`, `webdriver-manager`.
+- New dependencies: `kokoro`, `soundfile`, `lameenc` (see §MP3 encoding
+  parameters above). Removed dependencies: `selenium`, `webdriver-manager`.
 
 ## Voice samples (for the GUI voice picker)
 

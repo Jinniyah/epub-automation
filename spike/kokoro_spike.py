@@ -1,9 +1,9 @@
-"""Kokoro/PyInstaller packaging spike (Epic 1).
+"""Kokoro/PyInstaller packaging spike (Epic 1). COMPLETE as of 2026-07-08.
 
 Purpose: verify that kokoro can be imported, the model loaded, and audio
 generated; then confirm the same works inside a PyInstaller-built .exe.
 
-FINDINGS (completed 2026-07-06):
+FINDINGS (spike portion completed 2026-07-06):
   - kokoro==0.9.4 confirmed installable.
   - misaki[en] (English G2P) requires espeakng-loader==0.2.4, which ships
     espeak-ng.dll + espeak-ng-data/ as a Python wheel.  This IS the native
@@ -12,26 +12,50 @@ FINDINGS (completed 2026-07-06):
     running this script with `python spike/kokoro_spike.py`).
   - Model weights (~300MB) download from HuggingFace on first run; CPU-only
     torch (torch==2.12.1+cpu) is used — no CUDA/GPU required.
-  - PyInstaller bundling requirements confirmed (see 07-packaging-deployment.md
-    §Known packaging constraints for the full list):
-      --collect-data espeakng_loader   (includes the DLL + espeak-ng-data/)
-      --collect-all torch              (hidden imports for torch backend selection)
-      --collect-all transformers       (tokenizer/model hidden imports)
-      --collect-all kokoro             (ONNX session files, voice configs)
 
-Full PyInstaller build (Step 2 below) is the remaining to-do for Epic 1.
+FINDINGS (full PyInstaller build + end-to-end .exe test completed 2026-07-08):
+  - Three further data-only packaging gaps found, all the same underlying
+    cause as espeak-ng above (a data file loaded via ctypes/
+    importlib.resources at runtime, invisible to PyInstaller's static
+    import-graph analysis) — none of these were caught by the 2026-07-06
+    spike because that only ran inside an activated venv, never as a
+    built exe:
+      * phonemizer -> csvw -> language_tags ships data/json/index.json
+      * misaki ships its own G2P dictionary data (e.g. data/us_gold.json)
+      * soundfile wraps the native libsndfile binary
+  - One genuinely new runtime dependency, not just a build flag: misaki's
+    English G2P auto-downloads spaCy's en_core_web_sm model via `pip` on
+    first use if absent. That succeeds silently in a venv (pip exists),
+    which is why the spike run didn't catch it — but a frozen .exe has no
+    pip executable to shell out to, so it fails hard ("No package
+    installer found") and aborts the whole process. Fixed by
+    pre-installing the model as a wheel before building (see Step 2 below)
+    so misaki finds it already present and never attempts the download.
+    Now pinned in requirements.txt.
+  - Verified result: dist\\kokoro_spike.exe, run standalone on Windows (no
+    venv activation needed to *run* it, only to *build* it), completes all
+    5 steps below and writes a real 153KB spike_output.wav.
+
+See 07-packaging-deployment.md §Known packaging constraints for the full
+writeup, and docs/BACKLOG.md Epic 1 for the session history.
 
 Usage:
   # Step 1 — verify normal execution (downloads model weights on first run)
   .venv\\Scripts\\python spike\\kokoro_spike.py
 
   # Step 2 — build a minimal .exe and verify it produces spike_output.wav
+  # (PowerShell syntax below — use ^ instead of ` for cmd.exe)
   .venv\\Scripts\\pip install pyinstaller
-  .venv\\Scripts\\pyinstaller --onefile ^
-      --collect-data espeakng_loader ^
-      --collect-all torch ^
-      --collect-all transformers ^
-      --collect-all kokoro ^
+  .venv\\Scripts\\pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+  .venv\\Scripts\\pyinstaller --onefile `
+      --collect-data espeakng_loader `
+      --collect-data language_tags `
+      --collect-data misaki `
+      --collect-all en_core_web_sm `
+      --collect-all torch `
+      --collect-all transformers `
+      --collect-all kokoro `
+      --collect-all soundfile `
       spike\\kokoro_spike.py
   dist\\kokoro_spike.exe
 """
@@ -93,8 +117,8 @@ def main() -> None:
 
     print("=== Spike PASSED ===")
     print("kokoro imports, the espeak-ng DLL loads, and audio is generated.")
-    print("Remaining: Step 2 (PyInstaller build) — see module docstring.")
 
 
 if __name__ == "__main__":
     main()
+</content>

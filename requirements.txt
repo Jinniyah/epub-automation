@@ -5,13 +5,38 @@
 # bump; the same discipline is applied here from Epic 0 onward rather
 # than only once the audio stage lands in Epic 4).
 #
-# NOTE: google-generativeai (Epic 3) is not yet added -- pinned when Epic 3
-# introduces the import. kokoro/torch/espeakng-loader added below (Epic 1
-# spike confirmed all three; torch must be CPU-only variant from the PyTorch
-# index: pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu)
+# NOTE: google-genai (Epic 3, GeminiProvider) -- the actively maintained
+# unified Gemini SDK, not the deprecated google-generativeai package.
+# kokoro/torch/espeakng-loader added below (Epic 1 spike confirmed all
+# three; torch must be CPU-only variant from the PyTorch index:
+# pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu)
 kokoro==0.9.4
 espeakng-loader==0.2.4
 torch==2.12.1+cpu
+# en_core_web_sm and soundfile added during Epic 1's PyInstaller build+exe
+# verification (2026-07-08), not the original 2026-07-06 spike:
+# - en_core_web_sm: misaki's English G2P auto-downloads this spaCy model
+#   via `pip` on first use if absent, which fails inside a frozen exe (no
+#   pip available there). Pre-installed from the GitHub-hosted wheel, not
+#   PyPI -- see docs/BACKLOG.md Epic 1 for the exact install command.
+# - soundfile: wraps native libsndfile; needed to actually write WAV/MP3
+#   output. Was originally Epic 4 (audio stage) scope only, but the Epic 1
+#   spike needed it to produce verifiable proof-of-output, so it's pinned
+#   here now rather than deferred.
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+soundfile==0.13.1
+# lameenc (Epic 4): soundfile/libsndfile's MP3 writer only exposes a
+# compression_level quality knob (0.0-0.9), not a real bitrate -- measured
+# ~21kbps at its highest setting, nowhere near the 128kbps CBR spec'd in
+# docs/requirements/04-tts-engine.md. lameenc is a compiled LAME binding
+# (prebuilt Windows wheels, no subprocess/external binary) that hits exact
+# CBR bitrates -- packaging-friendly the same way espeakng-loader is.
+lameenc==1.8.4
+# numpy: already an indirect dependency of torch/kokoro (Kokoro's Result.audio
+# is a torch.FloatTensor, converted via numpy en route to lameenc's PCM
+# input) -- pinned explicitly now that pipeline/tts_engine.py imports it
+# directly, per this project's exact-pinning policy.
+numpy==2.4.6
 Flask==3.1.3
 waitress==3.0.2
 psutil==7.2.2
@@ -21,6 +46,7 @@ lxml==6.0.2
 mutagen==1.48.1
 regex==2026.6.28
 openai==2.44.0
+google-genai==2.10.0
 python-dotenv==1.2.2
 
 # Development / quality tools -- ported from epub-renamer's toolchain
@@ -30,3 +56,4 @@ pytest-cov==7.1.0
 black==26.5.1
 ruff==0.15.20
 mypy==2.1.0
+</content>

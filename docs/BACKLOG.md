@@ -1,420 +1,318 @@
 # epub-automation — Implementation Backlog
 
-Status: Epics 0, 1 (spike), and 2 complete (see `CODEBASE_INDEX.md` for
-the file map). Epic 1 full PyInstaller build+exe test still to-do (see
-Epic 1 stories). Epic 3+ not yet started. This is the source of truth for
-*what order* things get built in — `docs/requirements/` is *what*,
-`docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*, this file
-is *in what order and why that order*.
+**Status:** Epics 0–4 complete. Epic 5+ not started.
 
-**Sequencing rationale (see `docs/design_review.md` and
-`docs/design/SYSTEM_DESIGN.md` §7.6 for the full reasoning):**
-scaffolding first, then the two highest-risk/highest-uncertainty items
-early (the sanitize stage's from-scratch language port, and the Kokoro
-packaging spike) rather than saving them for last, then the remaining
-pipeline stages in reuse order, then the backend contract, then the
-frontend and its accessibility layer, then packaging/QA/documentation
-close-out. This mirrors the project's own reuse-by-default principle:
-ported, already-tested logic carries less risk than new code, so new
-code and unverified assumptions get front-loaded for attention, not
-back-loaded as "the easy part we'll get to eventually."
+This is the source of truth for *build order*. `docs/requirements/` is
+*what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
+this file is *in what order*.
 
-**Confirmed at backlog kickoff** (see
-`docs/requirements/08-open-questions-and-assumptions.md`): Windows-only
-v1 scope, and acceptance of the Gemini free-tier data-use trade-off.
-Both providers (Gemini, OpenAI) are built out as equally first-class
-choices — see Epic 3.
+**Sequencing:** scaffolding first, then the two highest-risk items
+(sanitize port, Kokoro packaging spike) run in parallel, then the
+remaining stages in reuse order, then the backend contract, frontend +
+accessibility, then packaging/QA/docs close-out. New code and unverified
+assumptions are front-loaded; ported/tested logic is back-loaded.
 
-**How to use this doc:** work top to bottom within an epic unless a
-dependency says otherwise; epics themselves can overlap where noted
-(Epic 1 runs in parallel with Epic 2). Mark stories `[ ]` → `[x]` as
-they're completed, and add new stories here rather than only in
-conversation if implementation surfaces work not already captured — see
-`CLAUDE.md` §Documentation & session close.
+**Confirmed at kickoff:** Windows-only v1 scope; Gemini free-tier
+data-use trade-off accepted. Gemini and OpenAI are equally first-class
+provider choices (Epic 3).
+
+**Usage:** work top to bottom within an epic unless noted otherwise.
+Mark `[ ]` → `[x]` as completed; add new stories here if work surfaces
+that isn't captured yet.
 
 ---
 
 ## Epic 0 — Scaffolding & Cross-Cutting Infrastructure ✅ Complete
 
-Nothing here is stage-specific; it's the seams every later epic builds
-on top of. Do this first so `docs/design/PATTERNS.md`'s patterns exist
-as real interfaces before any stage logic is written against them.
-
-**Reconciliation note (found during this session):**
-`08-open-questions-and-assumptions.md`'s "dependency versions will be
-exactly pinned" item said "Tracked as a backlog item — see
-`docs/BACKLOG.md` Epic 0," but no such story actually existed here yet.
-Added below and completed in the same session, per `CLAUDE.md`'s
-living-document rule (`docs/requirements/`, `docs/design/`, and this
-file are kept reconciled with each other).
-
-- [x] Repo structure matching `docs/requirements/01-architecture.md`
-  §Project structure (`pipeline/`, `backend/`, `frontend/`, `main.py`,
-  `launcher.py`, `tests/`, etc.) — stage-specific files
-  (`rename_stage.py`, `sanitize_stage.py`, `audio_stage.py`,
-  `retag_stage.py`, `tts_engine.py`, `epub_reader.py`, `epub_utils.py`,
-  `ai_providers/`) deliberately left uncreated for their own epics
-  (2–5) rather than stubbed out here; `frontend/` is a placeholder
-  README only, real scaffold in Epic 7
-- [x] `Stage` protocol/interface (Pipeline pattern — `PATTERNS.md` §1
-  sketch) with a minimal fake implementation and a test proving the
-  interface itself is sufficient (not just concrete stages later) —
-  `pipeline/stage.py`, `tests/test_stage.py`
-- [x] `Repository` wrappers for `state_manager.py` and
-  `audit_logger.py` (PATTERNS.md §1), including `schema_version`
-  read/write and the migration/mismatch policy from
-  `05-data-settings-and-logging.md` §Schema versioning —
+- [x] Repo structure per `01-architecture.md` (`pipeline/`, `backend/`,
+  `frontend/`, `main.py`, `launcher.py`, `tests/`); stage files deferred
+  to their own epics
+- [x] `Stage` protocol + `BookState` (Pipeline pattern) — `pipeline/stage.py`
+- [x] `StateRepository` / `AuditLogRepository` with schema versioning —
   `pipeline/state_manager.py`, `pipeline/audit_logger.py`
-- [x] Atomic write-to-temp-then-rename helper for `settings.json` and
-  the state file (ADR-0005) — TDD with a simulated crash-mid-write test
-  (`09-testing-strategy.md` §TDD workflow) — `pipeline/atomic_write.py`,
-  `tests/test_atomic_write.py`
-- [x] Single-instance lock with **PID-based stale-lock detection**
-  (ADR-0007, `01-architecture.md` §Single-instance behavior) — TDD with
-  a simulated dead-PID scenario proving the lock clears and the launch
-  proceeds — `pipeline/single_instance.py`, `tests/test_single_instance.py`
-  (uses `psutil` for cross-platform PID/process-name checks — see
-  `CODEBASE_INDEX.md`'s session notes)
-- [x] `SafeZipOperation` Template Method base (PATTERNS.md §1) — guard
-  order: path-traversal → zip-bomb cap → XXE prevention, fixed and
-  reused by every future zip-opening call site — `pipeline/safe_zip.py`,
-  `tests/test_safe_zip.py` (adversarial fixtures: path traversal, zip
-  bomb via size cap and via compression ratio, XXE)
-- [x] CI skeleton: `pytest` + `pytest-cov` (`--cov-fail-under=80`),
-  `black`, `ruff`, `mypy --strict` — ported from `epub-renamer`'s
-  existing toolchain, not invented fresh (`09-testing-strategy.md`) —
-  `pyproject.toml`, `Makefile`, `.github/workflows/ci.yml` (backend job;
-  frontend job deferred to Epic 7 rather than stubbed as an always-green
-  placeholder)
-- [x] `profanity.txt` bundling + first-run copy-into-`settings.json`
-  mechanism (`05-data-settings-and-logging.md` §Profanity list) —
-  `pipeline/profanity.txt` (ported verbatim from `epub-sanitize`),
-  `pipeline/config.py`, `tests/test_config.py`
-- [x] `.env.example` for CLI/advanced use (`01-architecture.md`)
-- [x] **Exactly pin dependency versions** (a lockfile-style pin, not
-  loose ranges) for every dependency Epic 0 actually introduces —
-  `requirements.txt`. `kokoro`/`torch` (Epic 1/4) and
-  `google-generativeai` (Epic 3) intentionally not yet listed; pinned
-  when those epics introduce the import, not speculatively here (see
-  `08-open-questions-and-assumptions.md`'s "New items found during a
-  post-backlog-kickoff review" §Decided outright)
+- [x] Atomic write/read for settings + state (ADR-0005), TDD'd with a
+  crash-mid-write test — `pipeline/atomic_write.py`
+- [x] Single-instance lock with PID-based stale-lock detection (ADR-0007,
+  uses `psutil`) — `pipeline/single_instance.py`
+- [x] `SafeZipOperation` Template Method base — path-traversal →
+  zip-bomb cap → XXE, with adversarial fixtures — `pipeline/safe_zip.py`
+- [x] CI skeleton: `pytest`/`pytest-cov` (80% floor), `black`, `ruff`,
+  `mypy --strict`, ported from `epub-renamer`'s toolchain
+- [x] Profanity list bundling + first-run seed — `pipeline/config.py`
+- [x] `.env.example` for CLI/advanced use
+- [x] Exact dependency pinning in `requirements.txt`
 
 ---
 
-## Epic 1 — Kokoro/PyInstaller Packaging Spike *(run in parallel with Epic 2)*
+## Epic 1 — Kokoro/PyInstaller Packaging Spike ✅ Complete (2026-07-08)
 
-The one open item with real architectural blast radius if it goes
-badly — sequenced early specifically so a bad answer here can still
-change downstream decisions cheaply.
+The highest-blast-radius open item, sequenced early. *(Ran in parallel
+with Epic 2.)*
 
-**Completed 2026-07-06 (spike portion). Remaining: full PyInstaller build+exe test.**
+- [x] Espeak-ng confirmed required, shipped via `espeakng-loader==0.2.4`
+  (DLL + data as a Python wheel, loaded via ctypes)
+- [x] Spike script verifies import → model load → audio generation —
+  `spike/kokoro_spike.py`
+- [x] Full PyInstaller build + standalone `.exe` test, verified on
+  Windows: `dist\kokoro_spike.exe` produces a real 153KB `spike_output.wav`
 
-- [ ] **Remaining:** Actual PyInstaller build + end-to-end `.exe` test —
-  install `pyinstaller` in venv, run the build command from
-  `spike/kokoro_spike.py`'s docstring, launch `dist/kokoro_spike.exe`,
-  confirm `spike_output.wav` is produced. See
-  `07-packaging-deployment.md` §Known packaging constraints for the
-  exact flags needed.
-- [x] Minimal spike script that imports `kokoro`, loads the model, and
-  generates one sample WAV — `spike/kokoro_spike.py` (Step 1 complete;
-  runs cleanly in the venv)
-- [x] Confirm or rule out a native (non-Python) dependency — espeak-ng
-  IS required, shipped via `espeakng-loader==0.2.4` as a Python wheel
-  (`espeak-ng.dll` + `espeak-ng-data/`); DLL loads correctly via ctypes
-- [x] Named build requirements added to `07-packaging-deployment.md`
-  §Known packaging constraints (`--collect-data espeakng_loader`,
-  `--collect-all torch/transformers/kokoro`)
-- [x] `CLAUDE.md` "Packaging risk" row and `docs/design/SYSTEM_DESIGN.md`
-  §8/§9 updated with confirmed finding (2026-07-06)
+**Confirmed working build command** (full context in
+`07-packaging-deployment.md` §Known packaging constraints):
+
+```
+pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+pyinstaller --onefile \
+    --collect-data espeakng_loader \
+    --collect-data language_tags \
+    --collect-data misaki \
+    --collect-all en_core_web_sm \
+    --collect-all torch \
+    --collect-all transformers \
+    --collect-all kokoro \
+    --collect-all soundfile \
+    spike/kokoro_spike.py
+```
+
+**Notes:** three data-only packages needed explicit `--collect-*` flags
+beyond the original spike (`language_tags`, `misaki`, `soundfile`) — all
+the same root cause as espeak-ng (ctypes/`importlib.resources` data
+invisible to static analysis). One genuinely new runtime dependency:
+`en_core_web_sm` (spaCy model), since misaki's `pip`-based auto-download
+fails inside a frozen exe. Both `en_core_web_sm` and `soundfile` are now
+pinned in `requirements.txt`.
 
 ---
 
 ## Epic 2 — Sanitize Stage Port (PowerShell → Python) ✅ Complete (2026-07-06)
 
-Highest risk of the four stages: the only genuine language port, and
-security-critical (untrusted, user-supplied ZIP archives). Do this
-first among the stages while it has full attention, not last as
-"just a port." See ADR-0004.
+Highest-risk stage: the only full language port, security-critical
+(untrusted ZIPs). See ADR-0004.
 
-- [x] Port all ten security controls from `PS_Run-CleanUpEpub.ps1`
-  exactly (`02-pipeline-stages.md` §Stage 2, ADR-0004): path-traversal
-  guard (extract + repack), zip-bomb cap, XXE prevention, profanity-list
-  size cap, whole-word matching, asterisk replacement, `.xhtml`/`.htm`/
-  `.html` scope, mimetype-first uncompressed repack, temp-dir atomic
-  cleanup — `pipeline/sanitize_stage.py`
-- [x] Adopt the `regex` package for Unicode-category whole-word matching
-  **and** 5-second ReDoS execution timeout — `regex==2026.6.28`,
-  Apache-2.0, confirmed in `10-licensing-and-notices.md`
-- [x] Built `sanitize_stage.py` on top of `SafeZipOperation` Template
-  Method from Epic 0 (`_ExtractEpub` subclass)
-- [x] Sidecar CSV report (`CleanReport<suffix>_<timestamp>.csv`,
-  `(Epub, File, Word, Count)` rows) + `words_replaced` /
-  `sanitize_detail_report` audit-log columns (`02-pipeline-stages.md`
-  §Stage 2) — columns already in `pipeline/audit_logger.py::COLUMNS`
-  from Epic 0; `write_report()` returns `Path | None`
-- [x] 29-test adversarial suite covering all 10 controls: path-traversal,
-  zip bomb (size cap + ratio), XXE payload, ReDoS timeout (1µs monkeypatch
-  + 50k occurrences), profanity-list cap, Unicode boundaries, whole-word
-  guard, `.xhtml` scope, mimetype-first repack, temp-dir cleanup —
-  `tests/test_sanitize_stage.py`; all 82 project tests pass
-- [x] Editable word-list read from `settings.json`'s `profanity_words`
-  (via `SettingsRepository`, same path as Epic 0's config)
+- [x] All 10 security controls ported from `PS_Run-CleanUpEpub.ps1`:
+  path-traversal guard, zip-bomb cap, XXE prevention, profanity size
+  cap, whole-word matching, asterisk replacement, `.xhtml`/`.htm`/`.html`
+  scope, mimetype-first repack, temp-dir cleanup — `pipeline/sanitize_stage.py`
+- [x] `regex` package for Unicode whole-word matching + 5s ReDoS timeout
+  (`regex==2026.6.28`, Apache-2.0)
+- [x] Built on `SafeZipOperation` (`_ExtractEpub` subclass)
+- [x] Sidecar CSV report + audit-log columns
+- [x] 29-test adversarial suite (path-traversal, zip-bomb, XXE, ReDoS,
+  profanity cap, Unicode boundaries) — all 82 project tests pass
+- [x] Editable word list via `settings.json`
 
 ---
 
-## Epic 3 — Rename Stage Port
+## Epic 3 — Rename Stage Port ✅ Complete (2026-07-08)
 
-- [ ] Port `ai_providers/` registry from `epub-renamer` **as-is**:
-  `base.py`, `registry.py`, `openai_provider.py`, `null_provider.py`
-  (ADR-0003, ADR-0014 — direct port, not new code)
-- [ ] Write `gemini_provider.py` — the one genuinely new provider
-  implementation (ADR-0003)
-- [ ] Confirm both `"gemini"` and `"openai"` are equally selectable via
-  `settings.json`'s `ai_provider` field and the GUI's AI Helper Setup
-  screen — **neither is more "default" than the other** at the
-  settings-schema level (per backlog-kickoff confirmation, see
-  `08-open-questions-and-assumptions.md`)
-- [ ] Port `MAX_FILES` cap + `DRY_RUN=true` safe default from
-  `epub-renamer`'s `.env`-driven config (`06-safety-error-handling.md`
-  §Resource & cost safety)
-- [ ] `FILENAME_PATTERN` verbatim reuse + already-normalized-skip logic,
-  including the `skipped_reason: "already_normalized"` audit row
-  (`02-pipeline-stages.md` §Stage 1)
-- [ ] Per-file silent fallback to `NullProvider` on AI failure/rate-limit
-  (`02-pipeline-stages.md` §Stage 1 Failure handling)
-- [ ] MAX_FILES batch-overflow UX: reject excess books individually at
-  Screen 1 add-time with a friendly message (`06-safety-error-handling.md`
-  §Resource & cost safety, resolved during the design review)
+- [x] Port `ai_providers/` registry as-is: `base.py`, `registry.py`,
+  `openai_provider.py`, `null_provider.py` (ADR-0003/0014) —
+  `pipeline/ai_providers/`. Adapted to take `api_key` explicitly via
+  constructor (settings.json-driven, not the original's `.env`-backed
+  `config.py`); registry keys renamed `"null"` → `"none"` to match
+  settings.json's `ai_provider` vocabulary.
+- [x] Write `gemini_provider.py` — the one new provider (ADR-0003) —
+  uses the `google-genai` SDK (the maintained successor to the
+  deprecated `google-generativeai` package), mirrors `OpenAIProvider`'s
+  prompt/JSON-parsing structure via a shared `parse_json_object()` helper
+  in `ai_providers/base.py`.
+- [x] Both providers equally selectable via `settings.json`; neither is
+  default — `pipeline/ai_providers/registry.py`'s `PROVIDERS` dict.
+- [x] Port `MAX_FILES` cap + `DRY_RUN=true` default — `dry_run` is a
+  per-call `RenameStage` constructor flag (honored: writes no file,
+  logs `skipped_reason="dry_run"`). `MAX_FILES` batch-level enforcement
+  (stopping a batch, rejecting excess books at Screen 1) is deferred to
+  Epic 6/Epic 8 — `Stage.run()` is per-book by design
+  (`docs/design/PATTERNS.md`), so there's no batch loop in this stage to
+  cap. `DEFAULT_MAX_FILES = 50` exported from `rename_stage.py` for
+  those epics to wire up.
+- [x] `FILENAME_PATTERN` reuse + already-normalized-skip logic — ported
+  verbatim, ADR-0016 confirms it only matches shape, not characters.
+- [x] Per-file silent fallback to `NullProvider` on AI failure — both at
+  construction time (bad config) and per-`run()` call (runtime failure).
+- [ ] MAX_FILES overflow: reject excess books individually at Screen 1 —
+  genuinely Epic 8 scope (no Screen 1 exists yet); left unchecked here,
+  tracked there.
+- [x] **New this epic, not originally listed:** `pipeline/epub_utils.py`
+  `sanitize_filesystem_name()` (ADR-0016) — shared by rename now, retag
+  (Epic 5) later. `pipeline/epub_reader.py` ported verbatim
+  (`extract_epub_metadata`/`extract_text_sample`).
 
 ---
 
-## Epic 4 — Audio Stage (Kokoro TTS Integration)
+## Epic 4 — Audio Stage (Kokoro TTS Integration) ✅ Complete (2026-07-10)
 
-- [ ] `tts_engine.py` wrapping `kokoro.KPipeline` (`04-tts-engine.md`
-  §Interface sketch)
-- [ ] Reuse `chunk_text()` / `MAX_CHUNK_CHARS = 4,000` verbatim from
-  `epub-to-audio/epub_utils.py` — flagged for re-validation once real
-  Kokoro samples exist, not assumed correct just because inherited
-- [ ] MP3 encoding: 128kbps CBR, mono, 48kHz (`04-tts-engine.md` §MP3
-  encoding parameters) — this is what makes the disk-space formula's
-  16,000 bytes/sec constant exact
-- [ ] Voice sample pre-generation + cache at
-  `%APPDATA%\EpubAutomation\voice_samples\`, with `version.txt`
-  cache-invalidation tied to the installed `kokoro` version
-  (`04-tts-engine.md` §Voice samples)
-- [ ] **Lazy** first-run trigger for both the model download and voice
-  sample generation — first actual need, not eager at every launch
-  (`04-tts-engine.md` §First-run setup, resolved during the design
-  review)
-- [ ] Per-chunk resume: skip any existing MP3 above the minimum size
-  threshold (`02-pipeline-stages.md` §Stage 3, `06-safety-error-handling.md`
-  §Long-run resilience)
-- [ ] Disk-space estimate formula (`estimated_audio_bytes =
-  total_chars_remaining × SECONDS_PER_CHAR × 16,000`) with the
-  placeholder `SECONDS_PER_CHAR`, biased toward overestimating
-  (`06-safety-error-handling.md` §Resource & cost safety)
-- [ ] Session-local same-series voice default within a multi-book batch
-  (ADR-0010, `03-gui-ux-design.md` §Voice assignment) — no persisted
-  per-series memory
-- [ ] **CPU vs. GPU benchmarking pass** on real target hardware — this
-  single measurement produces both the `SECONDS_PER_CHAR` constant above
-  and the dynamic Working-screen time estimate (never a hardcoded "a few
-  hours" string) — tracked open item, see
-  `08-open-questions-and-assumptions.md` item 3
-- [ ] **Perchance-parity QA pass** — 2–3 representative voices, matched
-  text through old (Perchance, if reachable) and new (Kokoro) paths,
-  side-by-side listen for volume/sample-rate/pacing differences before
-  fully retiring the Selenium code path (keep it in version control
-  until parity is confirmed) — tracked open item, see
-  `08-open-questions-and-assumptions.md` item 2
+- [x] `tts_engine.py` wrapping `kokoro.KPipeline` — `pipeline/tts_engine.py`.
+  `KPipeline` itself is imported lazily (inside `_get_pipeline()`, first
+  real call only), matching the lazy-download requirement below;
+  `pipeline_factory` constructor param is the testing seam (never
+  downloads/runs the real model in tests).
+- [x] Reuse `chunk_text()` / `MAX_CHUNK_CHARS = 4,000` — ported verbatim
+  into `pipeline/epub_utils.py` alongside `extract_chapters()`,
+  `normalise_heading()`, `DEFAULT_STOP_AFTER` (ADR-0014). Still flagged
+  for re-validation against real Kokoro output once real side-by-side
+  samples exist (04-tts-engine.md §Open item for review).
+- [x] MP3 encoding: 128kbps CBR, mono — **resolved during implementation,
+  not 48kHz as originally written**: encodes at Kokoro's native 24kHz
+  (confirmed by the already-verified Epic 1 spike) via `lameenc`, a new
+  pinned dependency. `soundfile`/libsndfile's MP3 writer (used for Epic
+  1's WAV spike) turned out to only expose a `compression_level` quality
+  knob, not a real bitrate control — measured ~21kbps at its highest
+  setting during implementation, nowhere near 128kbps CBR. Full writeup:
+  04-tts-engine.md §MP3 encoding parameters. `pipeline/tts_engine.py`'s
+  `_encode_mp3()`.
+- [x] Voice sample pre-generation + cache, versioned by installed
+  `kokoro` version — `pipeline/tts_engine.py::ensure_voice_samples()`.
+  On regeneration failure (e.g. offline), existing stale-tagged samples
+  are left in place rather than deleted first, retried on a future call.
+- [x] Lazy first-run trigger for model download + voice samples — the
+  laziness itself lives in `TTSEngine`/`ensure_voice_samples()` (nothing
+  imports `kokoro` or touches the model until a real call happens).
+  *Deciding when* to make that first call (a real audio-stage run, or
+  her opening the voice picker) is `bridge.py`/GUI wiring — genuinely
+  Epic 6/8 scope, no batch runner or voice-picker screen exists yet.
+  Same split Epic 3 used for `DEFAULT_MAX_FILES`.
+- [x] Per-chunk resume (skip existing MP3 above size threshold) —
+  `pipeline/audio_stage.py::MIN_VALID_MP3_BYTES`, ported verbatim
+  (`> 1024` bytes) from `epub-to-audio`'s resume check.
+- [x] Disk-space estimate formula (`SECONDS_PER_CHAR` placeholder,
+  biased toward overestimating) — `pipeline/tts_engine.py::
+  estimate_audio_bytes()`. Pure function, reusable by both CLI and GUI
+  once a Screen 1 exists to call it (Epic 8).
+- [ ] Session-local same-series voice default (no persisted memory) —
+  genuinely Epic 8 scope, not this stage: it requires knowing which
+  books in the *current batch* share a series, which `Stage.run()`'s
+  per-book signature has no visibility into (same reasoning Epic 3 used
+  to defer `MAX_FILES` batch-level enforcement). `AudioStage` takes
+  whatever voice the caller already resolved via `book.data["voice"]`.
+- [ ] **Open:** CPU vs. GPU benchmarking on real hardware — produces
+  `SECONDS_PER_CHAR` and the Working-screen time estimate. Needs real
+  hardware, not resolvable from this session.
+- [ ] **Open:** Kokoro vs. Perchance parity QA pass before retiring the
+  Selenium path. Needs a real side-by-side listen, not resolvable from
+  this session.
+
+**New this epic, not originally listed:** `pipeline/epub_reader.py::
+extract_cover_bytes()` (3-strategy fallback, ported verbatim from
+`epub-to-audio\epub_utils.py`) — needed for ID3 cover art, landed
+alongside `extract_epub_metadata()`/`extract_text_sample()` since it
+operates on the same already-opened `ebooklib` `Book` object, not
+chunked chapter text. `pyproject.toml` gained a scoped
+`disallow_untyped_calls = false` override for `pipeline.audio_stage`
+only — mutagen ships `py.typed` but its ID3 frame classes aren't fully
+annotated, and mypy evaluates that strict flag at the call site's
+module, not the callee's.
 
 ---
 
 ## Epic 5 — Retag Stage
 
-- [ ] Port `retag.py` into `retag_stage.py` largely as-is
-  (`02-pipeline-stages.md` §Stage 4)
-- [ ] **Folder-rename bug fix**: rename the containing output folder to
-  match corrected metadata, not just the MP3 files inside it — a real
-  gap in the original script, found by reading the source directly
-- [ ] Regression test proving the folder itself gets renamed, not just
-  its contents (`09-testing-strategy.md` §Priority coverage areas) —
-  this is what makes the bug fix durable rather than something that
-  quietly regresses
-- [ ] Dry-run support (preview without writing)
-- [ ] Author/title/series/series-number override plumbing, matching the
-  original script's CLI flags exactly
+- [ ] Port `retag.py` into `retag_stage.py`
+- [ ] Fix folder-rename bug: rename the containing folder, not just the
+  MP3s (real gap in the original script)
+- [ ] Regression test for the folder-rename fix
+- [ ] Dry-run support
+- [ ] Author/title/series/series-number override plumbing
 
 ---
 
 ## Epic 6 — Backend / Flask Bridge
 
-- [ ] `launcher.py`: waitress bind to `127.0.0.1` only (fixed constant,
-  ADR-0008), free-port discovery, single-instance lock acquisition
-  (Epic 0), browser-launch with retry-then-native-fallback
-  (`07-packaging-deployment.md` §Browser-launch fallback) — Epic 0
-  already delivered a scaffold version of this (fixed bind + lock around
-  a placeholder app); this epic adds free-port discovery and the real
-  fallback behavior
-- [ ] `backend/app.py` routes + `backend/dialogs.py`
-  (`tkinter.filedialog` bridge, ADR-0006)
-- [ ] `backend/bridge.py` — thin Adapter into `pipeline/` (ADR-0001,
-  PATTERNS.md §1); **zero business logic**, translation only
-- [ ] Status endpoint: implement the explicit state-machine derivation
-  function per the fixed precedence rule in `01-architecture.md` §Status
-  endpoint contract §State derivation — unit-test the function directly
-  against that precedence table, independent of any HTTP plumbing
-- [ ] Progress → polling via an Observer-style event stream from
-  pipeline stages (PATTERNS.md §1), so `pipeline/` never needs to know
-  an HTTP server exists
-- [ ] `main.py` CLI: thin Adapter mirroring `bridge.py`'s role; reserve
-  `--workers N` (default `1`) on the `audio` command without
-  implementing parallelism yet (ADR-0009) — Epic 0 already delivered
-  argument parsing and the `--workers` validation/default; this epic
-  wires it to real stage calls
-- [ ] Error communication: generic "Something went wrong" + "Copy
-  details for support" bundle, built from settings with sensitive
-  fields stripped (`ai_api_key` never included), degrading gracefully
-  if the audit log itself can't be read (`06-safety-error-handling.md`
-  §Error communication)
-- [ ] Output-collision handling: distinct prompts for EPUB-copy vs.
-  audiobook collisions in `output_folder`
-  (`06-safety-error-handling.md` §Concurrency & duplicate handling)
+- [ ] `launcher.py`: free-port discovery, browser-launch retry +
+  fallback (Epic 0 already has fixed bind + lock)
+- [ ] `backend/app.py` routes + `backend/dialogs.py` (`tkinter.filedialog`)
+- [ ] `backend/bridge.py` — thin Adapter into `pipeline/`, zero business
+  logic
+- [ ] Status endpoint: state-machine derivation per the fixed precedence
+  rule, unit-tested independent of HTTP
+- [ ] Progress via Observer-style event stream from stages
+- [ ] `main.py` CLI wired to real stage calls; `--workers N` reserved,
+  unimplemented (ADR-0009)
+- [ ] Error communication: generic message + "Copy details" bundle
+  (never includes `ai_api_key`)
+- [ ] Output-collision handling: distinct prompts for EPUB vs. audiobook
 
 ---
 
 ## Epic 7 — Frontend Scaffolding
 
-- [ ] Vite + React project setup (build-time only — confirm no runtime
-  Node/npm dependency leaks into the packaged `.exe`)
-- [ ] API-client facade wrapping every `fetch` call to the Flask backend
-  (PATTERNS.md §2)
-- [ ] `usePollingStatus()` hook (PATTERNS.md §2)
-- [ ] `useFocusTrap()` hook — focus-trap-on-open, focus-return-on-close,
-  Escape-to-close (`03-gui-ux-design.md` §Accessibility §Operable)
-- [ ] `useAriaLiveThrottled()` hook — `polite` for routine messages,
-  `assertive` for errors, throttled progress announcements (not every
-  poll tick) (`03-gui-ux-design.md` §Accessibility §Status updates)
-- [ ] `useReducer`-based local UI state (which overlay is open, which
-  field is mid-edit) — supports the "app reopens to the same state"
-  requirement (PATTERNS.md §2)
-- [ ] Container/Presentational split: one top-level container owns
-  `usePollingStatus()`; screens receive plain props (PATTERNS.md §2)
-- [ ] Add the frontend CI job (Vitest + coverage, `axe-core`,
-  `eslint-plugin-jsx-a11y`) to `.github/workflows/ci.yml` alongside the
-  backend job from Epic 0
+- [ ] Vite + React setup (build-time only, no runtime Node/npm in the
+  packaged `.exe`)
+- [ ] API-client facade wrapping all `fetch` calls
+- [ ] `usePollingStatus()`, `useFocusTrap()`, `useAriaLiveThrottled()` hooks
+- [ ] `useReducer`-based local UI state
+- [ ] Container/Presentational split
+- [ ] Frontend CI job (Vitest + coverage, `axe-core`, `eslint-plugin-jsx-a11y`)
 
 ---
 
 ## Epic 8 — GUI Screens
 
-Build in the order a first-time user encounters them, per
-`03-gui-ux-design.md`. Every screen must satisfy
-`03-gui-ux-design.md` §Accessibility: WCAG 2.1 AA alignment before being
-considered done (`CLAUDE.md` rule #5) — real focusable controls, labels,
-focus management, `aria-live` wiring where relevant.
+Build in encounter order per `03-gui-ux-design.md`. Every screen must
+meet WCAG 2.1 AA alignment before being done.
 
-- [ ] First-launch one-time setup (folder pickers via `dialogs.py`)
-- [ ] AI Helper Setup (provider choice, key entry, masked display) —
-  both Gemini and OpenAI paths fully supported, Skip equally weighted
-- [ ] "Welcome back" screen, driven entirely by state-file content
-  (`06-safety-error-handling.md` §Long-run resilience)
-- [ ] Screen 1: Add Books (drag-and-drop + equally-capable "Choose
-  Books..." button, per-book Remove, the two stage toggles)
-- [ ] **Field Correction Popup** — one shared component (Compound
-  Component reuse, already implicit per `03-gui-ux-design.md`), used
-  identically by pre-generation confirm-metadata and post-generation
-  "No, let me fix it"
+- [ ] First-launch setup (folder pickers)
+- [ ] AI Helper Setup (provider choice, key entry, masked display)
+- [ ] "Welcome back" screen (state-file driven)
+- [ ] Screen 1: Add Books (drag-and-drop + button, per-book Remove,
+  stage toggles)
+- [ ] Field Correction Popup (one shared component, reused everywhere)
 - [ ] Per-book identification loop
-- [ ] Voice assignment — single-book full picker and multi-book table,
-  both driven by the same `useVoiceAssignmentView(books)` view-model
-  hook (PATTERNS.md §2) disambiguated by `books.length`
-- [ ] Screen: Working — dynamic time estimate (from Epic 4's
-  benchmarking), Pause/Cancel with color **and** permanent caption text,
-  "Quit for now" control
-- [ ] Screen: Review — book-scoped "See the audiobook files" link above
-  the Yes/No question, general output-folder link
-- [ ] "No, let me fix it" flow (reuses Field Correction Popup, feeds
-  `retag_stage.py` overrides)
-- [ ] Settings areas: Change my folders, Words to clean up, "What voice
-  did I use before?" (read-only, degrades gracefully on audit-log read
-  failure)
+- [ ] Voice assignment (single-book + multi-book table, shared
+  view-model hook)
+- [ ] Screen: Working (dynamic time estimate, Pause/Cancel, Quit for now)
+- [ ] Screen: Review (per-book link + output-folder link)
+- [ ] "No, let me fix it" flow (feeds `retag_stage.py`)
+- [ ] Settings: folders, word list, voice history (read-only)
 
 ---
 
 ## Epic 9 — Accessibility Verification
 
-- [ ] `axe-core` (via `vitest-axe`/`@axe-core/react`) wired into the
-  same `vitest run` invocation gating the 80% coverage floor
-- [ ] `eslint-plugin-jsx-a11y` added to the existing lint step
-- [ ] Manual keyboard-only pass across every screen in Epic 8
-- [ ] Real NVDA pass + Windows Narrator baseline sanity check
-- [ ] Real test with the already-identified dyslexic reader — genuine
-  unassisted/lightly-observed run, not a design review of mockups
-- [ ] **Screen-reader tester** — confirm or, if enough time passes
-  without one, explicitly document the honest fallback framing
-  ("designed and tested against WCAG 2.1 AA criteria," never "validated
-  by a blind user") — tracked open item, see
-  `08-open-questions-and-assumptions.md` item 5
-- [ ] **Her-facing copy read-through** — the real acceptance test is an
-  unassisted dry run by the mother (or someone with a similar profile)
-  through first-launch setup and a full single-book conversion, watched
-  but not helped — tracked open item, see
-  `08-open-questions-and-assumptions.md` (copy wording)
-- [ ] **Per-series voice memory, second look** — revisit once real
-  multi-book batches have actually been run, per ADR-0010's own
-  "worth a second look on reflection" flag
+- [ ] `axe-core` + `eslint-plugin-jsx-a11y` wired into CI
+- [ ] Manual keyboard-only pass, all screens
+- [ ] Real NVDA pass + Narrator sanity check
+- [ ] Real dyslexic-reader test (unassisted)
+- [ ] **Open:** screen-reader tester — confirm, or document the honest
+  fallback framing if none materializes
+- [ ] **Open:** her-facing copy read-through — real unassisted dry run
+- [ ] **Open:** per-series voice memory, second look after real
+  multi-book use
 
 ---
 
 ## Epic 10 — Packaging & First-Run Experience
 
-- [ ] PyInstaller build pipeline (`npm run build` → `dist/` → bundle
-  alongside `backend/` + `pipeline/`)
-- [ ] SmartScreen mitigation: primary (technical family member runs it
-  once first) + fallback local HTML file with one screenshot
-  (`07-packaging-deployment.md` §Windows SmartScreen)
-- [ ] Browser-launch fallback: retry once, then native `tkinter` dialog
-  with clipboard-copied address and a "Try Again" button
-- [ ] First-run "Setting up for the first time..." screen tied to the
-  **lazy** trigger point from Epic 4, not eager at launch
-- [ ] Verify uninstall is genuinely just two deletions
-  (`.exe`/shortcut + `%APPDATA%\EpubAutomation\`) with nothing else left
-  behind
+- [ ] Full PyInstaller build pipeline (`npm run build` → `dist/` → bundle)
+- [ ] SmartScreen mitigation: installer runs it once first + fallback
+  HTML file
+- [ ] Browser-launch fallback: retry, then native `tkinter` dialog with
+  clipboard-copied address
+- [ ] First-run setup screen tied to the lazy trigger point
+- [ ] Verify uninstall is genuinely two deletions
 
 ---
 
 ## Epic 11 — Documentation & Release Wrap-Up
 
-- [x] `CODEBASE_INDEX.md` at repo root (file map + migration/schema
-  table), per `CLAUDE.md` §Documentation & session close #2 — created
-  during Epic 0's build session (this is genuinely the first build
-  session, matching the trigger condition for this item), kept current
-  as later epics land
-- [ ] `NOTICE` file at repo root, generated from
-  `10-licensing-and-notices.md`'s dependency table (confirm the `regex`
-  package's actual license once chosen in Epic 2)
-- [ ] Coverage badge in the repo README
-- [ ] Privacy note confirmed present in the shipped README (already
-  drafted, `06-safety-error-handling.md` §Error communication)
-- [ ] Final CLAUDE.md / ADR / SYSTEM_DESIGN.md consistency pass — this
-  project's own stated practice (`CLAUDE.md` rule #3) of keeping
-  `docs/requirements/` and `docs/design/` reconciled, applied one more
-  time before calling v1 done
+- [x] `CODEBASE_INDEX.md` created (Epic 0), kept current since
+- [ ] `NOTICE` file from `10-licensing-and-notices.md`'s dependency
+  table (include `en_core_web_sm`, `soundfile`)
+- [ ] Coverage badge in README
+- [ ] Privacy note in shipped README
+- [ ] Final `CLAUDE.md`/ADR/`SYSTEM_DESIGN.md` consistency pass
 
 ---
 
-## Open items carried from `08-open-questions-and-assumptions.md`
-
-For quick reference — each also appears inline above at the epic where
-it's actually resolved:
+## Open Items
 
 | Item | Epic |
 |---|---|
-| Kokoro/PyInstaller native-dependency packaging risk | Epic 1 |
-| Perchance vs. Kokoro output parity | Epic 4 |
-| CPU vs. GPU benchmarking (also produces `SECONDS_PER_CHAR`) | Epic 4 |
-| Her-facing copy wording, real unassisted dry-run test | Epic 9 |
-| Screen-reader tester confirmation | Epic 9 |
-| Per-series voice memory, second look | Epic 9 |
-| Dependency version pinning | Epic 0 (done) |
+| Kokoro/PyInstaller packaging risk | 1 — done |
+| Dependency version pinning | 0 — done |
+| Perchance vs. Kokoro output parity | 4 |
+| CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 4 |
+| Her-facing copy wording, unassisted dry-run test | 9 |
+| Screen-reader tester confirmation | 9 |
+| Per-series voice memory, second look | 9 |
+</content>

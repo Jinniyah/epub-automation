@@ -28,6 +28,7 @@ Status legend: **Accepted** (decided, ready to build against) ·
 | [0015](0015-wcag-aa-alignment-broadened-accessibility-scope.md) | Broaden accessibility scope to WCAG 2.1 AA alignment (screen readers, dyslexia), layered on top of the original persona | Accepted |
 | [0016](0016-windows-safe-filesystem-naming.md) | Windows-safe filesystem naming (illegal characters, reserved device names) and long-path handling | Accepted |
 | [0017](0017-library-staging-cleanup.md) | Automatic cleanup of internal `Library/` staging copies after a book completes | Accepted |
+| [0018](0018-mp3-encoding-lameenc-native-sample-rate.md) | MP3 encoding via `lameenc` (not `soundfile`), at Kokoro's native 24kHz (not 48kHz) | Accepted |
 
 ## Post-review fixes (2026-07-05 design-review pass)
 

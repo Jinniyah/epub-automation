@@ -27,6 +27,18 @@ python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 
+# mutagen ships a py.typed marker but its ID3 frame classes (TIT2/TPE1/...)
+# aren't fully annotated -- unlike ebooklib/bs4 (no py.typed at all, so
+# ignore_missing_imports above already makes them Any), a *partially*
+# typed dependency still trips strict's disallow_untyped_calls. mypy
+# evaluates that flag at the *call site*'s module, not the callee's, so
+# this has to target the modules that call into mutagen (ID3 tagging),
+# not "mutagen.*" itself (Epic 4, pipeline/audio_stage.py; will recur for
+# pipeline/retag_stage.py, Epic 5 -- add it there too when that lands).
+[[tool.mypy.overrides]]
+module = "pipeline.audio_stage"
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["tests"]
