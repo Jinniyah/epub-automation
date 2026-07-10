@@ -39,6 +39,16 @@ ignore_missing_imports = true
 module = "pipeline.audio_stage"
 disallow_untyped_calls = false
 
+[[tool.mypy.overrides]]
+module = "pipeline.retag_stage"
+disallow_untyped_calls = false
+
+# Same rule as above, applied to the retag stage's own test module --
+# tests/test_retag_stage.py builds ID3 fixtures directly (Epic 5).
+[[tool.mypy.overrides]]
+module = "tests.test_retag_stage"
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["tests"]

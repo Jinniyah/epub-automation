@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–4 complete. Epic 5+ not started.
+**Status:** Epics 0–5 complete. Epic 6+ not started.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -205,14 +205,24 @@ module, not the callee's.
 
 ---
 
-## Epic 5 — Retag Stage
+## Epic 5 — Retag Stage ✅ Complete (2026-07-10)
 
-- [ ] Port `retag.py` into `retag_stage.py`
-- [ ] Fix folder-rename bug: rename the containing folder, not just the
-  MP3s (real gap in the original script)
-- [ ] Regression test for the folder-rename fix
-- [ ] Dry-run support
-- [ ] Author/title/series/series-number override plumbing
+- [x] Port `retag.py` into `retag_stage.py` — folder-name parsing (old
+  standalone-tool shape + this pipeline's own `build_filename()` shape),
+  MP3-filename-suffix chapter-title/track derivation, ID3 tag rewriting
+  — `pipeline/retag_stage.py`
+- [x] Fix folder-rename bug: rename the containing folder, not just the
+  MP3s (real gap in the original script) — `RetagStage._retag_folder_name()`
+- [x] Regression test for the folder-rename fix —
+  `test_run_renames_folder_not_just_files` in `tests/test_retag_stage.py`
+- [x] Dry-run support — constructor-level `dry_run` flag, same convention
+  as `RenameStage`
+- [x] Author/title/series/series-number override plumbing — `book.data`'s
+  existing fields (set by `RenameStage`/`AudioStage`, or corrected via
+  "No, let me fix it") take precedence over folder-name parsing; parsing
+  is the fallback for retagging an arbitrary folder with no known
+  `book.data` (see `pipeline/retag_stage.py` module docstring for the
+  full adaptation rationale)
 
 ---
 

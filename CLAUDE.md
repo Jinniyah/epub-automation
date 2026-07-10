@@ -1,11 +1,11 @@
 # CLAUDE.md — AI Development Rules for epub-automation
-# Last updated: 2026-07-10 — Epics 0-4 complete. Epic 1: PyInstaller build+exe verified on Windows. Epic 2: sanitize_stage.py, 29 tests. Epic 3: rename_stage.py + ai_providers/ (gemini/openai/none) + epub_reader.py/epub_utils.py, 65 new tests. Epic 4: tts_engine.py + audio_stage.py (Kokoro TTS, lameenc MP3 encoding), 57 new tests. 204 total tests pass. Next: Epic 5 (retag stage).
+# Last updated: 2026-07-10 — Epics 0-5 complete. Epic 1: PyInstaller build+exe verified on Windows. Epic 2: sanitize_stage.py, 29 tests. Epic 3: rename_stage.py + ai_providers/ (gemini/openai/none) + epub_reader.py/epub_utils.py, 65 new tests. Epic 4: tts_engine.py + audio_stage.py (Kokoro TTS, lameenc MP3 encoding), 57 new tests. Epic 5: retag_stage.py (folder-rename bug fix over the original script, reuses rename_stage.build_filename()), 29 new tests. 233 total tests pass. Next: Epic 6 (backend/Flask bridge).
 
 ---
 
 ## Startup protocol
 
-1. **Epics 0-4 complete; Epic 5+ not started.** Before writing new code,
+1. **Epics 0-5 complete; Epic 6+ not started.** Before writing new code,
    read: `docs/requirements/README.md` → numbered docs 00–10 →
    `docs/design/SYSTEM_DESIGN.md` → `docs/design/adr/README.md` →
    `docs/design/PATTERNS.md` → `docs/BACKLOG.md` → `CODEBASE_INDEX.md`.

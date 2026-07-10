@@ -23,7 +23,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | `pipeline/sanitize_stage.py` | Real (Epic 2). All 10 security controls from `PS_Run-CleanUpEpub.ps1`. `_ExtractEpub(SafeZipOperation)` + `SanitizeStage` w/ sidecar CSV + audit columns. | Epic 2 |
 | `pipeline/rename_stage.py` | Real (Epic 3). `RenameStage` + `FILENAME_PATTERN`/`build_filename` ported from `epub-renamer`'s `renamer.py`/`main.py`; copy-based (not in-place rename) to fit this pipeline's stage-folder model; dry-run + name-conflict handling; silent per-file `NullProvider` fallback on AI failure. | Epic 3 |
 | `pipeline/audio_stage.py` | Real (Epic 4). `AudioStage` — per-book chapter/chunk TTS loop, ID3 tagging via mutagen, per-chunk resume, retry-then-error. Reuses `rename_stage.build_filename()` directly (minus `.epub`) for the output folder/file base name. | Epic 4 |
-| `pipeline/retag_stage.py` | Not yet created. | Epic 5 |
+| `pipeline/retag_stage.py` | Real (Epic 5). `RetagStage` — fixes ID3 tags/filenames/**containing folder name** (bug fix over the original script) for an already-generated audiobook folder. Folder-name parsing (`parse_folder_metadata`/`parse_stem_metadata`) handles both the old standalone-tool shape and this pipeline's own `build_filename()` shape; reuses `rename_stage.build_filename()` directly for all naming (ADR-0016), same pattern `audio_stage.py` already uses. Always manually triggered (`applies_to()` always `False`). | Epic 5 |
 | `pipeline/tts_engine.py` | Real (Epic 4). `TTSEngine` wraps `kokoro.KPipeline`, lazily imported/constructed (first real call only). `VOICES`/`DEFAULT_VOICE`, `estimate_audio_bytes()` (disk-space formula), `ensure_voice_samples()` (cache + version-tagging). MP3 encoding via `lameenc` at Kokoro's native 24kHz — see session notes below. | Epic 4 |
 | `pipeline/epub_reader.py` | Real (Epic 3, extended Epic 4). `extract_epub_metadata`/`extract_text_sample` ported verbatim from `epub-renamer/epub_reader.py`; `extract_cover_bytes()` (Epic 4) ported verbatim from `epub-to-audio\epub_utils.py`, 3-strategy fallback, used for ID3 cover art. | Epic 3/4 |
 | `pipeline/epub_utils.py` | Real (Epic 3, extended Epic 4). `sanitize_filesystem_name()` (ADR-0016) — new shared utility, used by rename, audio (Epic 4), and retag (Epic 5). `extract_chapters()`/`chunk_text()`/`normalise_heading()`/`MAX_CHUNK_CHARS` (Epic 4) ported verbatim from `epub-to-audio\epub_utils.py`. | Epic 3/4/5 |
@@ -31,6 +31,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | `frontend/` | Placeholder `README.md` only. | Epic 7 |
 | `tests/test_sanitize_stage.py` | 29 adversarial tests, all 10 controls. | Epic 2 |
 | `tests/test_rename_stage.py`, `test_ai_providers.py`, `test_openai_provider.py`, `test_gemini_provider.py`, `test_epub_reader.py`, `test_epub_utils.py` | Epic 3 test suite (`test_epub_reader.py`/`test_epub_utils.py` extended Epic 4 — see below): `build_filename`/`FILENAME_PATTERN`/`RenameStage` (happy path, already-normalized, dry-run, name-conflict, AI failure fallback, corrupted EPUB), provider base/registry/Null/OpenAI/Gemini, `sanitize_filesystem_name` (incl. idempotency). | Epic 3 |
+| `tests/test_retag_stage.py` | Epic 5 test suite, 29 tests. Folder-name parsing (old + new shapes), chapter-title/track-number derivation from MP3 filename suffix, ID3 tag rewriting, override-vs-parsed precedence, dry-run, idempotency, and the folder-rename regression test (`test_run_renames_folder_not_just_files`). | Epic 5 |
 | `tests/test_tts_engine.py`, `test_audio_stage.py` | Epic 4 test suite. Fake `pipeline_factory`/fake TTS engine throughout — never downloads or runs the real Kokoro model. Covers: MP3 bitrate/sample-rate/mono verification, per-lang-code pipeline caching, `estimate_audio_bytes()` formula, `ensure_voice_samples()` version-mismatch/offline-failure behavior; chunk/chapter naming conventions, per-chunk resume, retry-then-error (partial chunks left intact), ID3 tagging incl. cover art, unknown-voice/missing-file/corrupted-EPUB/no-chapters error paths. `test_epub_utils.py`/`test_epub_reader.py` extended with `extract_chapters()`/`chunk_text()`/`normalise_heading()`/`extract_cover_bytes()` coverage. | Epic 4 |
 | `tests/test_*.py` (stage, atomic_write, state_manager, audit_logger, single_instance, safe_zip, config) | Epic 0 test suite, incl. crash-mid-write, dead-PID, adversarial zip fixtures. | Epic 0 |
 | `pyproject.toml` / `Makefile` | Toolchain, ported from `epub-renamer`, coverage config added. `[[tool.mypy.overrides]]` for `pipeline.audio_stage` (Epic 4, see session notes below). | Epic 0/4 |
@@ -50,6 +51,41 @@ Future field: bump `CURRENT_SCHEMA_VERSION`, add a `_MIGRATIONS` entry
 keyed by old version, add a row here.
 
 ## Session notes
+
+**Epic 5 (2026-07-10):** the original `retag.py` has no real author
+first/last semantics -- `parse_filename_metadata()` stores whatever text
+sits before/after a separator verbatim, and the module docstring's
+"Benedict, Jacka -> Jacka, Benedict" example is a human correcting the
+field in the interactive prompt, not something the code does
+automatically (confirmed by reading the actual source, not just the
+docstring -- the same "verify, don't just trust" discipline
+`docs/design_review.md` credits this project with elsewhere). The port
+splits parsed author text on the first comma into `author_last`/
+`author_first` (this pipeline's shape everywhere else), which is
+unambiguous for this pipeline's own folders and structurally equivalent
+(same ambiguity, not a regression) for legacy folders from the old
+standalone tool. Filename/folder construction reuses
+`rename_stage.build_filename()` directly rather than porting the
+original's own `build_new_filename()` -- cross-checked against the
+original docstring's own example shape (`Jacka, Benedict — Alex Verus
+#01 — Fated`), which matches `build_filename()`'s zero-padded `#NN`
+output exactly. Missing-metadata handling deliberately does *not* match
+`RenameStage`/`AudioStage`'s "Unknown, Unknown — Unknown" fallback --
+retag operates on an *already*-named folder, so silently renaming it to
+"Unknown" on a parse failure would be destructive, not just unhelpful;
+kept the original script's fail-closed behavior instead. Found and fixed
+a pre-existing, unrelated bug while verifying: `spike/kokoro_spike.py`
+had a stray literal `</content>` line appended at EOF (an old
+editing-tool artifact), which broke `mypy .` for the entire repo with a
+syntax error -- removed. Also found that `tests/test_audio_stage.py` and
+`tests/test_tts_engine.py` (Epic 4) currently fail `mypy --strict` on
+their own (untyped `mutagen`/`ID3`/`MP3` calls, plus one real
+`_FakeTTSEngine` vs. `TTSEngine` arg-type mismatch) despite Epic 4's
+session notes claiming a clean run -- left as-is (pre-existing, not
+introduced this session, out of scope for Epic 5) but flagged here
+rather than silently ignored; `tests/test_retag_stage.py` got its own
+scoped mypy override to stay genuinely clean. 233 total tests pass (up
+from 204), `black`/`ruff` clean.
 
 **Epic 0:** `psutil` used for PID liveness (not in design docs, small
 well-established dep, not ADR-worthy). 89% coverage, `black`/`ruff`/`mypy
