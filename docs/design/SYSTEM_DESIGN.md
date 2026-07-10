@@ -355,4 +355,3 @@ management, and view-models (§7.3, §6).
 sanitize port + Kokoro spike (parallel, highest risk) → remaining
 stages → backend contract → frontend + accessibility → packaging/QA/docs.
 Every open item from §9 is a concrete backlog item, not just a footnote.
-</content>

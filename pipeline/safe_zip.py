@@ -121,14 +121,37 @@ class SafeZipOperation(ABC):
             if info.is_dir() or not info.filename.lower().endswith(xml_suffixes):
                 continue
             data = zf.read(info.filename)
-            # A cheap, dependency-free DOCTYPE/ENTITY sniff before ever
+            # A cheap, dependency-free ENTITY/DOCTYPE sniff before ever
             # handing these bytes to an XML parser -- the fastest way to
             # reject the classic XXE payload shape without requiring every
             # call site to remember to configure a hardened parser.
-            if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
-                raise XXEError(
-                    f"{info.filename!r} contains a DOCTYPE/ENTITY declaration"
-                )
+            if b"<!ENTITY" in data:
+                raise XXEError(f"{info.filename!r} contains an ENTITY declaration")
+            # A DOCTYPE is only a real XXE vector if it references an
+            # external resource (SYSTEM/PUBLIC) or declares an internal
+            # subset ("["  -- where an inline ENTITY would live, already
+            # caught above regardless). A bare `<!DOCTYPE html>` with
+            # neither is the standard, harmless HTML5 doctype every real
+            # XHTML file uses (including ebooklib's own output) and must
+            # not be flagged -- found via input_validation.py becoming
+            # this guard's first caller against realistic EPUB content;
+            # sanitize_stage.py's own hand-crafted fixtures never
+            # happened to include a plain doctype, which is why this sat
+            # latent.
+            doctype_idx = data.upper().find(b"<!DOCTYPE")
+            if doctype_idx != -1:
+                end = data.find(b">", doctype_idx)
+                declaration = data[doctype_idx : end if end != -1 else len(data)]
+                upper_declaration = declaration.upper()
+                if (
+                    b"SYSTEM" in upper_declaration
+                    or b"PUBLIC" in upper_declaration
+                    or b"[" in declaration
+                ):
+                    raise XXEError(
+                        f"{info.filename!r} contains a DOCTYPE with an external "
+                        "reference or internal subset"
+                    )
 
     @abstractmethod
     def _do_operation(self, zf: zipfile.ZipFile) -> Any:

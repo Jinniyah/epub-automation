@@ -42,7 +42,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TRCK, ID3NoHeaderError
 
@@ -71,6 +71,10 @@ class AudioStage:
 
     Implements the Stage protocol (pipeline/stage.py). Configuration is
     injected at construction; run() processes one book at a time.
+
+    `on_progress`/`should_stop` (Epic 6) are optional Observer-pattern
+    hooks -- this stage still has no idea an HTTP server or a batch runner
+    exists; it just calls them, if given, once per chunk.
     """
 
     name = "audio"
@@ -85,6 +89,8 @@ class AudioStage:
         max_chunk_chars: int = MAX_CHUNK_CHARS,
         max_chunk_retries: int = DEFAULT_MAX_CHUNK_RETRIES,
         retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
+        on_progress: Callable[[str, int, int], None] | None = None,
+        should_stop: Callable[[str], str | None] | None = None,
     ) -> None:
         self._input_folder = input_folder
         self._output_folder = output_folder
@@ -94,6 +100,14 @@ class AudioStage:
         self._max_chunk_chars = max_chunk_chars
         self._max_chunk_retries = max_chunk_retries
         self._retry_backoff_seconds = retry_backoff_seconds
+        # Observer pattern (docs/design/PATTERNS.md §1): this stage never
+        # knows an HTTP server or a batch runner exists -- it just calls
+        # these two optional hooks, if given, after each chunk. The batch
+        # runner (Epic 6) is what turns `on_progress` into the polling
+        # contract's `progress` field and `should_stop` into Pause/Cancel
+        # (docs/requirements/06-safety-error-handling.md §Cancel design).
+        self._on_progress = on_progress
+        self._should_stop = should_stop
 
     def applies_to(self, book: BookState, settings: dict[str, Any]) -> bool:
         # No skip toggle exists for the audio stage -- Screen 1's mockup
@@ -176,6 +190,28 @@ class AudioStage:
         for ch_idx, (chapter, chunks) in enumerate(chunked_chapters, start=1):
             for ck_idx, chunk in enumerate(chunks, start=1):
                 track_num += 1
+
+                if self._should_stop is not None:
+                    stop_reason = self._should_stop(book.book_id)
+                    if stop_reason is not None:
+                        # Stop before starting the next chunk -- already-
+                        # written chunks are untouched, which is exactly
+                        # what makes the existing per-chunk resume check
+                        # above safe to rely on for Pause/Cancel-keep-
+                        # partial recovery (06-safety-error-handling.md
+                        # §Cancel design).
+                        return BookState(
+                            book.book_id,
+                            stop_reason,
+                            {
+                                **book.data,
+                                "audio_folder": str(book_dir),
+                                "voice": voice,
+                                "chunks_done": track_num - 1,
+                                "chunks_total": total_tracks,
+                            },
+                        )
+
                 mp3_name = (
                     f"{base_name} - {ch_idx:03}_{ck_idx}.mp3"
                     if len(chunks) > 1
@@ -219,6 +255,9 @@ class AudioStage:
                     chapter_title=chapter["title"],
                     cover_bytes=cover_bytes,
                 )
+
+                if self._on_progress is not None:
+                    self._on_progress(book.book_id, track_num, total_tracks)
 
         self._audit_log.append(self._audit_row(filename, base_name, meta, voice))
         return BookState(

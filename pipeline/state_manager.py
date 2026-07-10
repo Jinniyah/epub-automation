@@ -121,6 +121,29 @@ class StateRepository:
         book = books.setdefault(book_id, {})
         book[stage] = {"status": "complete"}
 
+    def incomplete_book_ids(self) -> list[str]:
+        """Book IDs known to the state file that have not reached the
+        terminal `"cleanup"` stage -- the data source behind the "Welcome
+        back" screen (docs/requirements/06-safety-error-handling.md
+        §Long-run resilience): on every launch, check the state file for
+        any book not yet marked complete through every stage it needs,
+        and offer to continue it.
+
+        `"cleanup"` (ADR-0017) is the one stage a book only ever reaches
+        after every stage its run actually needed has finished and its
+        output has already been copied to `output_folder`
+        (`pipeline/batch_runner.py::_mark_complete`) -- checking for it
+        specifically, rather than requiring every *individual* stage key
+        to be present, sidesteps needing this file to also know which
+        stages a given run's toggles even included.
+        """
+        books = self._data.get("books", {})
+        return [
+            book_id
+            for book_id, stages in books.items()
+            if stages.get("cleanup", {}).get("status") != "complete"
+        ]
+
     def reset_stage(self, book_id: str, stage: str) -> None:
         """Reset a stage back to incomplete.
 

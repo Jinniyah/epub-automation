@@ -1,11 +1,11 @@
 # CLAUDE.md — AI Development Rules for epub-automation
-# Last updated: 2026-07-10 — Epics 0-5 complete. Epic 1: PyInstaller build+exe verified on Windows. Epic 2: sanitize_stage.py, 29 tests. Epic 3: rename_stage.py + ai_providers/ (gemini/openai/none) + epub_reader.py/epub_utils.py, 65 new tests. Epic 4: tts_engine.py + audio_stage.py (Kokoro TTS, lameenc MP3 encoding), 57 new tests. Epic 5: retag_stage.py (folder-rename bug fix over the original script, reuses rename_stage.build_filename()), 29 new tests. 233 total tests pass. Next: Epic 6 (backend/Flask bridge).
+# Last updated: 2026-07-10 — Epics 0-6 complete. Epic 1: PyInstaller build+exe verified on Windows. Epic 2: sanitize_stage.py, 29 tests. Epic 3: rename_stage.py + ai_providers/ (gemini/openai/none) + epub_reader.py/epub_utils.py, 65 new tests. Epic 4: tts_engine.py + audio_stage.py (Kokoro TTS, lameenc MP3 encoding), 57 new tests. Epic 5: retag_stage.py (folder-rename bug fix over the original script, reuses rename_stage.build_filename()), 29 new tests. Epic 6: backend/Flask bridge — pipeline/batch_runner.py (BatchRunner, the stateful GUI engine), backend/app.py + bridge.py + dialogs.py, launcher.py (free-port discovery + browser fallback), main.py CLI wired to real stages via pipeline/cli_runner.py, pipeline/input_validation.py + disk_space.py, 138 new tests. 371 total tests pass. Next: Epic 7 (frontend scaffolding).
 
 ---
 
 ## Startup protocol
 
-1. **Epics 0-5 complete; Epic 6+ not started.** Before writing new code,
+1. **Epics 0-6 complete; Epic 7+ not started.** Before writing new code,
    read: `docs/requirements/README.md` → numbered docs 00–10 →
    `docs/design/SYSTEM_DESIGN.md` → `docs/design/adr/README.md` →
    `docs/design/PATTERNS.md` → `docs/BACKLOG.md` → `CODEBASE_INDEX.md`.
@@ -78,7 +78,8 @@ source tools had a GUI at all.
 |---|---|---|
 | GUI transport | Flask/waitress + React (Vite, static build) | ADR-0001 |
 | GUI process model | Background launcher opens browser to Flask; tab close ≠ job death | ADR-0001 |
-| Status contract | One polling endpoint; `state` derived from `books[]` via fixed precedence rule; frontend reads via view-model hooks | `01-architecture.md` |
+| Status contract | One polling endpoint; `state` derived from `books[]` via fixed precedence rule; frontend reads via view-model hooks. **Implemented Epic 6** (`backend/bridge.py::derive_batch_state()`) with one documented deviation for the `review_result`/`output_collision` `needs_input` types — see that function's docstring. | `01-architecture.md` |
+| Output collision | Distinct "replace" vs. "keep both" prompt per artifact (EPUB vs. audiobook); `needs_input.type: "output_collision"` — new type, not in the original four-type list | `06-safety-error-handling.md`, `pipeline/batch_runner.py` |
 | TTS engine | Local `kokoro` (Kokoro-82M) — no browser/Selenium | ADR-0002 |
 | Kokoro download timing | Lazy — first real need, never eager at launch | `04-tts-engine.md` |
 | MP3 encoding | `lameenc` (not `soundfile`, which can't hit real CBR bitrates), 128kbps CBR mono at Kokoro's native 24kHz (not 48kHz) | ADR-0018 |
@@ -115,6 +116,7 @@ source tools had a GUI at all.
 | No per-series voice memory | Decided; revisit after real use — Epic 9 |
 | Her-facing copy wording | Drafted, not final — real dry-run needed — Epic 9 |
 | Screen-reader tester | Being pursued, not confirmed — never claim "validated by a blind user" until it happens — Epic 9 |
+| "Welcome back" full resume | Detection-only endpoint exists (`GET /api/welcome-back`, Epic 6); rebuilding a live `BatchRunner` from `state.json` after a backend restart is real, separate work — Epic 8 |
 
 ## Documentation & session close
 
@@ -129,4 +131,3 @@ source tools had a GUI at all.
 6. Use `docs/design/PATTERNS.md` patterns rather than ad hoc structures.
 7. **Mark items complete in `docs/BACKLOG.md`**, add stories for
    uncaptured work.
-</content>

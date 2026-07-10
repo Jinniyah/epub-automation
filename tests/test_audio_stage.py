@@ -439,3 +439,103 @@ def test_run_defaults_missing_metadata_fields_like_build_filename(
     assert result.status == "audio_generated"
     book_dir = Path(result.data["audio_folder"])
     assert book_dir.name == "Unknown, Unknown — Unknown"
+
+
+# ---------------------------------------------------------------------------
+# Observer hooks (Epic 6) -- on_progress / should_stop
+# ---------------------------------------------------------------------------
+
+
+def test_on_progress_is_called_once_per_chunk_with_running_totals(
+    tmp_path: Path,
+) -> None:
+    long_chapter = "Sentence content here. " * 400  # forces multiple chunks
+    _make_epub(
+        tmp_path / "input" / "book.epub",
+        [("Chapter 1", _SHORT_CHAPTER_TEXT), ("Chapter 2", long_chapter)],
+    )
+    audit_log = AuditLogRepository(tmp_path / "audit_log.csv")
+    calls: list[tuple[str, int, int]] = []
+    stage = AudioStage(
+        input_folder=tmp_path / "input",
+        output_folder=tmp_path / "output",
+        audit_log=audit_log,
+        tts_engine=_FakeTTSEngine(),
+        max_chunk_chars=500,
+        on_progress=lambda book_id, done, total: calls.append((book_id, done, total)),
+    )
+
+    result = stage.run(BookState("b1", "sanitized", _meta()))
+
+    assert result.status == "audio_generated"
+    total_tracks = result.data["chunks_total"]
+    assert total_tracks > 1  # forced multiple chunks via max_chunk_chars=500
+    assert len(calls) == total_tracks
+    assert all(book_id == "b1" for book_id, _, _ in calls)
+    assert all(total == total_tracks for _, _, total in calls)
+    assert [done for _, done, _ in calls] == list(range(1, total_tracks + 1))
+
+
+def test_should_stop_halts_before_the_next_chunk_leaving_earlier_ones_intact(
+    tmp_path: Path,
+) -> None:
+    long_chapter = "Sentence content here. " * 400
+    _make_epub(tmp_path / "input" / "book.epub", [("Chapter 1", long_chapter)])
+    audit_log = AuditLogRepository(tmp_path / "audit_log.csv")
+    stage = AudioStage(
+        input_folder=tmp_path / "input",
+        output_folder=tmp_path / "output",
+        audit_log=audit_log,
+        tts_engine=_FakeTTSEngine(),
+        max_chunk_chars=500,
+        # Stop as soon as the first chunk would have been produced.
+        should_stop=lambda book_id: "paused",
+    )
+
+    result = stage.run(BookState("b1", "sanitized", _meta()))
+
+    assert result.status == "paused"
+    assert result.data["chunks_done"] == 0
+    book_dir = Path(result.data["audio_folder"])
+    assert list(book_dir.glob("*.mp3")) == []
+
+
+def test_should_stop_allows_resuming_completed_chunks_on_a_later_run(
+    tmp_path: Path,
+) -> None:
+    long_chapter = "Sentence content here. " * 400
+    _make_epub(tmp_path / "input" / "book.epub", [("Chapter 1", long_chapter)])
+    audit_log = AuditLogRepository(tmp_path / "audit_log.csv")
+
+    # First run: stop after exactly one chunk has been written.
+    written: list[int] = []
+    stage1 = AudioStage(
+        input_folder=tmp_path / "input",
+        output_folder=tmp_path / "output",
+        audit_log=audit_log,
+        tts_engine=_FakeTTSEngine(),
+        max_chunk_chars=500,
+        on_progress=lambda book_id, done, total: written.append(done),
+        should_stop=lambda book_id: "cancelled" if len(written) >= 1 else None,
+    )
+    first = stage1.run(BookState("b1", "sanitized", _meta()))
+    assert first.status == "cancelled"
+    book_dir = Path(first.data["audio_folder"])
+    generated_after_first_run = len(list(book_dir.glob("*.mp3")))
+    assert generated_after_first_run >= 1
+
+    # Second run: no stop requested this time -- must resume, not
+    # regenerate, the chunk(s) already on disk (06-safety-error-handling.md
+    # §Long-run resilience).
+    fake_engine2 = _FakeTTSEngine()
+    stage2 = AudioStage(
+        input_folder=tmp_path / "input",
+        output_folder=tmp_path / "output",
+        audit_log=audit_log,
+        tts_engine=fake_engine2,
+        max_chunk_chars=500,
+    )
+    second = stage2.run(BookState("b1", "sanitized", _meta()))
+
+    assert second.status == "audio_generated"
+    assert len(fake_engine2.calls) < second.data["chunks_total"]

@@ -47,6 +47,48 @@ def test_reset_stage_marks_it_incomplete_again(tmp_path: Path) -> None:
     assert repo.is_stage_complete("b1", "audio") is False
 
 
+def test_incomplete_book_ids_is_empty_for_a_fresh_state(tmp_path: Path) -> None:
+    repo = StateRepository(tmp_path / "state.json")
+    repo.load()
+
+    assert repo.incomplete_book_ids() == []
+
+
+def test_incomplete_book_ids_lists_a_book_still_missing_the_cleanup_stage(
+    tmp_path: Path,
+) -> None:
+    repo = StateRepository(tmp_path / "state.json")
+    repo.load()
+    repo.mark_stage_complete("b1", "rename")
+    repo.mark_stage_complete("b1", "sanitize")
+    repo.mark_stage_complete("b1", "audio")
+    # "cleanup" -- the terminal, ADR-0017 marker -- was never reached.
+
+    assert repo.incomplete_book_ids() == ["b1"]
+
+
+def test_incomplete_book_ids_excludes_a_book_that_reached_cleanup(
+    tmp_path: Path,
+) -> None:
+    repo = StateRepository(tmp_path / "state.json")
+    repo.load()
+    repo.mark_stage_complete("b1", "rename")
+    repo.mark_stage_complete("b1", "sanitize")
+    repo.mark_stage_complete("b1", "audio")
+    repo.mark_stage_complete("b1", "cleanup")
+
+    assert repo.incomplete_book_ids() == []
+
+
+def test_incomplete_book_ids_reflects_a_reset_cleanup_stage(tmp_path: Path) -> None:
+    repo = StateRepository(tmp_path / "state.json")
+    repo.load()
+    repo.mark_stage_complete("b1", "cleanup")
+    repo.reset_stage("b1", "cleanup")
+
+    assert repo.incomplete_book_ids() == ["b1"]
+
+
 def test_save_then_load_round_trips_through_disk(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     repo = StateRepository(path)

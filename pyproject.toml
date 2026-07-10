@@ -49,6 +49,12 @@ disallow_untyped_calls = false
 module = "tests.test_retag_stage"
 disallow_untyped_calls = false
 
+# Same rule again -- tests/test_main.py builds an ID3 fixture directly to
+# exercise main.py's `retag` command end-to-end (Epic 6).
+[[tool.mypy.overrides]]
+module = "tests.test_main"
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["tests"]

@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–5 complete. Epic 6+ not started.
+**Status:** Epics 0–6 complete. Epic 7+ not started.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -226,21 +226,53 @@ module, not the callee's.
 
 ---
 
-## Epic 6 — Backend / Flask Bridge
+## Epic 6 — Backend / Flask Bridge ✅ Complete (2026-07-10)
 
-- [ ] `launcher.py`: free-port discovery, browser-launch retry +
-  fallback (Epic 0 already has fixed bind + lock)
-- [ ] `backend/app.py` routes + `backend/dialogs.py` (`tkinter.filedialog`)
-- [ ] `backend/bridge.py` — thin Adapter into `pipeline/`, zero business
-  logic
-- [ ] Status endpoint: state-machine derivation per the fixed precedence
-  rule, unit-tested independent of HTTP
-- [ ] Progress via Observer-style event stream from stages
-- [ ] `main.py` CLI wired to real stage calls; `--workers N` reserved,
-  unimplemented (ADR-0009)
-- [ ] Error communication: generic message + "Copy details" bundle
-  (never includes `ai_api_key`)
-- [ ] Output-collision handling: distinct prompts for EPUB vs. audiobook
+- [x] `launcher.py`: free-port discovery (`find_free_port()`), browser-launch
+  retry + native-dialog fallback (`open_browser()`) (Epic 0 already had
+  fixed bind + lock). Dynamic port selection needed a small port-sidecar
+  file next to the lock file so a second launch can still reopen a tab
+  to the running instance — new this epic, owned by `launcher.py` only.
+- [x] `backend/app.py` full route set + `backend/dialogs.py`
+  (`tkinter.filedialog`, injectable `tk_factory`/`ask_directory` seams)
+- [x] `backend/bridge.py` — thin Adapter into `pipeline/`, zero business
+  logic (`derive_batch_state()` itself is the one real function, a pure
+  State Machine translation, not a pipeline decision)
+- [x] Status endpoint: state-machine derivation per the fixed precedence
+  rule, unit-tested independent of HTTP (`tests/test_bridge.py`) — one
+  documented deviation for the `review_result`/`output_collision`
+  `needs_input` types this epic added (see `derive_batch_state()`'s
+  docstring and `CODEBASE_INDEX.md`'s Epic 6 session notes)
+- [x] Progress via Observer-style event stream from stages —
+  `AudioStage`'s new `on_progress`/`should_stop` hooks, consumed by
+  `pipeline/batch_runner.py::BatchRunner`
+- [x] `main.py` CLI wired to real stage calls via the new
+  `pipeline/cli_runner.py` (non-interactive, no `BatchRunner`); `--workers
+  N` still reserved, unimplemented (ADR-0009). `retag`'s CLI surface
+  (folder + override flags) added new this epic.
+- [x] Error communication: generic message + "Copy details" bundle
+  (`backend/bridge.py::build_support_bundle`/`write_support_bundle`,
+  never includes `ai_api_key`)
+- [x] Output-collision handling: distinct prompts for EPUB vs. audiobook
+  — `NeedsInputType.OUTPUT_COLLISION`, resolved via
+  `BatchRunner.resolve_collision()` / `POST /api/books/<id>/collision`
+
+**New this epic, not originally listed:** `pipeline/batch_runner.py`
+(`BatchRunner`, the stateful interactive engine the GUI polling contract
+is actually built on — not called out by name anywhere in the original
+backlog bullet list above, but required to implement all of them
+together), `pipeline/input_validation.py` (Screen-1 file validation —
+extension/zip-validity/DRM/`MAX_FILES`, wired up per Epic 3's own
+deferred scope note), `pipeline/disk_space.py` (pre-batch estimate/check,
+composing `tts_engine.estimate_audio_bytes()` with a real
+`shutil.disk_usage()` call), `StateRepository.incomplete_book_ids()`
+(the "Welcome back" screen's data source — detection only this epic, full
+resume reconstruction deferred to Epic 8). Also fixed two pre-existing
+bugs found during implementation: a stray `</content>` artifact in
+`requirements.txt` (breaking CI's `pip install`) and five docs files with
+the same artifact, and a real false-positive in `pipeline/safe_zip.py`'s
+XXE guard (flagged every plain `<!DOCTYPE html>`, not just a dangerous
+one) — full detail in `CODEBASE_INDEX.md`'s Epic 6 session notes.
 
 ---
 
@@ -325,4 +357,4 @@ meet WCAG 2.1 AA alignment before being done.
 | Her-facing copy wording, unassisted dry-run test | 9 |
 | Screen-reader tester confirmation | 9 |
 | Per-series voice memory, second look | 9 |
-</content>
+| "Welcome back" full state-file-driven resume (rebuild a live `BatchRunner` after a backend restart) — `GET /api/welcome-back` detection-only endpoint already exists (Epic 6) | 8 |

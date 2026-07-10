@@ -133,4 +133,3 @@ copy `%APPDATA%\EpubAutomation\` between machines.
 - Auto-update mechanism.
 - Code signing / installer (MSI) — see §Windows SmartScreen.
 - Uninstaller script, migration/import tooling.
-</content>

