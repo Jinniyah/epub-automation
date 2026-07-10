@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Protocol
 
 import numpy as np
 
@@ -157,6 +157,19 @@ def _encode_mp3(audio: np.ndarray, sample_rate: int = KOKORO_SAMPLE_RATE) -> byt
     mp3_bytes = encoder.encode(pcm_int16.tobytes())
     mp3_bytes += encoder.flush()
     return bytes(mp3_bytes)
+
+
+class TTSEngineLike(Protocol):
+    """The structural interface `AudioStage`/`BatchRunner` actually need
+    from a TTS engine -- just `generate()`. Typed as a Protocol rather
+    than the concrete `TTSEngine` class below so tests can supply a
+    plain duck-typed fake (never touching real Kokoro) without mypy
+    --strict treating it as an argument-type mismatch; a real
+    `TTSEngine` instance already satisfies this structurally, no change
+    needed at any real call site.
+    """
+
+    def generate(self, text: str, voice: str) -> bytes: ...
 
 
 class TTSEngine:

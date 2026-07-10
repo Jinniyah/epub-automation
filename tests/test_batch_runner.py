@@ -21,6 +21,7 @@ from pipeline.batch_runner import (
     STATUS_CANCELLED,
     STATUS_COMPLETE,
     STATUS_IDENTIFIED,
+    STATUS_IDENTIFYING,
     STATUS_NEEDS_INPUT,
     STATUS_PAUSED,
     STATUS_VOICE_PICK,
@@ -28,7 +29,8 @@ from pipeline.batch_runner import (
     NeedsInputType,
 )
 from pipeline.input_validation import RejectionReason
-from pipeline.rename_stage import build_filename
+from pipeline.rename_stage import RenameStage, build_filename
+from pipeline.stage import BookState
 from pipeline.state_manager import StateRepository
 
 _LONG_TEXT = "Some real narrative content, sentence by sentence. " * 20
@@ -113,11 +115,10 @@ def _make_runner(
         state_repo=_loaded_state_repo(tmp_path),
         audit_log=AuditLogRepository(tmp_path / "audit_log.csv"),
         settings=settings if settings is not None else {"ai_provider": "none"},
-        # _FakeTTSEngine deliberately duck-types TTSEngine rather than
-        # subclassing it (never touches real Kokoro) -- same tolerated
-        # mypy/strict friction as tests/test_audio_stage.py's own fake
-        # (see CODEBASE_INDEX.md's Epic 5 session notes).
-        tts_engine=tts_engine or _FakeTTSEngine(),  # type: ignore[arg-type]
+        # _FakeTTSEngine duck-types TTSEngineLike (pipeline/tts_engine.py)
+        # rather than subclassing the real TTSEngine -- never touches
+        # real Kokoro.
+        tts_engine=tts_engine or _FakeTTSEngine(),
         max_files=max_files,
     )
 
@@ -272,6 +273,46 @@ def test_identification_reaches_needs_input_confirm_metadata(tmp_path: Path) -> 
     data = _data_of(runner, book_id)
     assert data["needs_input_type"] == NeedsInputType.CONFIRM_METADATA
     assert data["title"] == "Fated"
+
+
+def test_start_called_again_while_thread_alive_still_picks_up_the_new_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test: previously, start() was a full no-op while its
+    background thread was still alive, so a book added (and start()
+    called again) during that window stayed stuck at "pending" forever
+    unless start() happened to be called a *third* time after the first
+    thread had already exited. Now the newly-pending book is flipped to
+    "identifying" immediately, and the already-running thread's own loop
+    picks it up without needing a second thread."""
+    import pipeline.batch_runner as batch_runner_module
+
+    gate = threading.Event()
+
+    class _SlowRenameStage(RenameStage):
+        def run(self, book: BookState) -> BookState:
+            gate.wait(timeout=5)
+            return super().run(book)
+
+    monkeypatch.setattr(batch_runner_module, "RenameStage", _SlowRenameStage)
+
+    runner = _make_runner(
+        tmp_path, settings={"ai_provider": "none", "clean_language": False}
+    )
+    first_id = _add_book(runner, tmp_path, name="first.epub")
+    runner.start()  # spawns the identification thread; blocks on the gate
+    _wait_until(lambda: _status_of(runner, first_id) == STATUS_IDENTIFYING)
+
+    # The thread is provably still alive (blocked on the gate) at this
+    # point -- add a second book and call start() again.
+    second_id = _add_book(runner, tmp_path, name="second.epub")
+    runner.start()
+    assert _status_of(runner, second_id) == STATUS_IDENTIFYING  # flipped immediately
+
+    gate.set()  # let both books actually process now
+
+    _wait_until(lambda: _status_of(runner, first_id) == STATUS_NEEDS_INPUT)
+    _wait_until(lambda: _status_of(runner, second_id) == STATUS_NEEDS_INPUT)
 
 
 def test_confirm_metadata_applies_corrections_and_reaches_identified(
@@ -641,6 +682,39 @@ def test_resuming_a_paused_book_continues_from_where_it_left_off(
     # Already-written chunk 1 was skipped on resume, not regenerated --
     # only the remaining chunks triggered a fresh generate() call.
     assert len(engine.calls) == calls_before_resume + (chunks_total - 1)
+
+
+def test_start_generation_called_again_while_thread_alive_still_picks_up_new_book(
+    tmp_path: Path,
+) -> None:
+    """Regression test for the same stuck-book class of bug on the
+    generation side: a second book reaching voice_pick while generation
+    is already running for a first book must not be stranded until the
+    first thread happens to exit and start_generation() is called again."""
+    engine = _FakeTTSEngine()
+    runner = _make_runner(
+        tmp_path,
+        tts_engine=engine,
+        settings={"ai_provider": "none", "clean_language": False},
+    )
+    id1 = _add_book(runner, tmp_path, name="one.epub", title="One")
+    id2 = _add_book(runner, tmp_path, name="two.epub", title="Two")
+    _run_identification_and_confirm(runner, [id1, id2])  # both now at voice_pick
+
+    engine.gate.clear()
+    runner.start_generation()
+    engine.entered.wait(timeout=5)  # id1's generation has genuinely started
+
+    # id2 is still queued and untouched -- prove it wasn't silently
+    # skipped just because a thread was already running for id1.
+    assert _status_of(runner, id2) == STATUS_VOICE_PICK
+    engine.gate.set()
+
+    _wait_until(
+        lambda: _data_of(runner, id2).get("needs_input_type")
+        == NeedsInputType.REVIEW_RESULT
+    )
+    assert _data_of(runner, id1).get("needs_input_type") == NeedsInputType.REVIEW_RESULT
 
 
 def test_cancel_keep_partial_preserves_the_audio_folder(tmp_path: Path) -> None:

@@ -59,7 +59,7 @@ from pipeline.retag_stage import RetagStage
 from pipeline.sanitize_stage import SanitizeStage
 from pipeline.stage import BookState, Stage
 from pipeline.state_manager import StateRepository
-from pipeline.tts_engine import DEFAULT_VOICE, TTSEngine
+from pipeline.tts_engine import DEFAULT_VOICE, TTSEngineLike
 
 # Per-book status vocabulary -- docs/requirements/01-architecture.md
 # §Status endpoint contract. `needs_input`'s own `type` sub-field
@@ -136,7 +136,7 @@ class BatchRunner:
         state_repo: StateRepository,
         audit_log: AuditLogRepository,
         settings: dict[str, Any],
-        tts_engine: TTSEngine,
+        tts_engine: TTSEngineLike,
         max_files: int = DEFAULT_MAX_FILES,
     ) -> None:
         self._incoming_dir = library_root / "00-Incoming"
@@ -269,13 +269,17 @@ class BatchRunner:
 
     def start(self) -> None:
         """Kick off the identification loop for every `pending` book in
-        the batch, in a background thread. Safe to call again while
-        already running (no-op)."""
+        the batch, in a background thread.
+
+        Safe to call again at any time, including while a previous
+        identification pass is still running: any newly-pending book is
+        flipped to `identifying` immediately regardless, and the
+        already-running thread's own loop (`_run_identification`) picks
+        it up on its next pass -- rather than the book being silently
+        stranded at `pending` forever unless `start()` happens to be
+        called again *after* that thread has already exited.
+        """
         with self._lock:
-            if self._identification_thread is not None and (
-                self._identification_thread.is_alive()
-            ):
-                return
             pending_ids = [
                 bid
                 for bid in self._book_order
@@ -283,8 +287,19 @@ class BatchRunner:
             ]
             for bid in pending_ids:
                 self._books[bid] = replace(self._books[bid], status=STATUS_IDENTIFYING)
+            if (
+                self._identification_thread is not None
+                and self._identification_thread.is_alive()
+            ):
+                return
+            has_work = any(
+                self._books[bid].status == STATUS_IDENTIFYING
+                for bid in self._book_order
+            )
+            if not has_work:
+                return
             self._identification_thread = threading.Thread(
-                target=self._run_identification, args=(pending_ids,), daemon=True
+                target=self._run_identification, daemon=True
             )
             self._identification_thread.start()
 
@@ -305,53 +320,72 @@ class BatchRunner:
             self._renamed_dir, self._sanitized_dir, self._report_dir, words
         )
 
-    def _run_identification(self, book_ids: list[str]) -> None:
+    def _run_identification(self) -> None:
+        """Process every book currently at `identifying`, looping until
+        none remain.
+
+        Re-querying live state each pass (rather than a fixed list
+        captured once at thread-start) is what lets `start()` safely
+        hand more work to this *same* running thread instead of a book
+        added mid-run needing a second thread -- see `start()`'s own
+        docstring.
+        """
         rename_stage = self._build_rename_stage()
         sanitize_stage = self._build_sanitize_stage()
 
-        for book_id in book_ids:
-            book = self._run_one_stage(
-                rename_stage,
-                book_id,
-                self._incoming_dir,
-                self._renamed_dir,
-                "renamed",
-                "rename",
-            )
-            if book.status == STATUS_ERROR:
-                continue
-
-            if sanitize_stage is not None:
-                book = self._run_one_stage(
-                    sanitize_stage,
-                    book_id,
-                    self._renamed_dir,
-                    self._sanitized_dir,
-                    "sanitized",
-                    "sanitize",
-                )
-            else:
-                book = self._pass_through(
-                    book_id,
-                    self._renamed_dir,
-                    self._sanitized_dir,
-                    "sanitized",
-                    "sanitize",
-                )
-            if book.status == STATUS_ERROR:
-                continue
-
-            needs_type = (
-                NeedsInputType.CONFIRM_METADATA
-                if book.data.get("title")
-                else NeedsInputType.AI_ENRICHMENT_FAILED
-            )
+        while True:
             with self._lock:
-                self._books[book_id] = replace(
-                    book,
-                    status=STATUS_NEEDS_INPUT,
-                    data={**book.data, "needs_input_type": needs_type},
+                book_ids = [
+                    bid
+                    for bid in self._book_order
+                    if self._books[bid].status == STATUS_IDENTIFYING
+                ]
+            if not book_ids:
+                break
+
+            for book_id in book_ids:
+                book = self._run_one_stage(
+                    rename_stage,
+                    book_id,
+                    self._incoming_dir,
+                    self._renamed_dir,
+                    "renamed",
+                    "rename",
                 )
+                if book.status == STATUS_ERROR:
+                    continue
+
+                if sanitize_stage is not None:
+                    book = self._run_one_stage(
+                        sanitize_stage,
+                        book_id,
+                        self._renamed_dir,
+                        self._sanitized_dir,
+                        "sanitized",
+                        "sanitize",
+                    )
+                else:
+                    book = self._pass_through(
+                        book_id,
+                        self._renamed_dir,
+                        self._sanitized_dir,
+                        "sanitized",
+                        "sanitize",
+                    )
+                if book.status == STATUS_ERROR:
+                    continue
+
+                needs_type = (
+                    NeedsInputType.CONFIRM_METADATA
+                    if book.data.get("title")
+                    else NeedsInputType.AI_ENRICHMENT_FAILED
+                )
+                with self._lock:
+                    self._books[book_id] = replace(
+                        book,
+                        status=STATUS_NEEDS_INPUT,
+                        data={**book.data, "needs_input_type": needs_type},
+                    )
 
         if sanitize_stage is not None:
             sanitize_stage.write_report()
@@ -523,28 +557,46 @@ class BatchRunner:
 
     def start_generation(self) -> None:
         """ "Start All Books" -- kicks off serial audio generation
-        (ADR-0009) for every book currently at `voice_pick` (or a
-        previously `paused` book being resumed). Safe to call again while
-        already running (no-op) or to resume after a Pause."""
+        (ADR-0009) for every book currently at `voice_pick`, and resumes
+        any `paused` book by re-queueing it the same way: flipped back to
+        `voice_pick` here, so a paused book and a never-started one are
+        indistinguishable to `_run_generation` from this point on (this
+        is also what makes resuming self-healing -- see below -- rather
+        than needing its own separate case).
+
+        Safe to call again at any time, including while a previous
+        generation pass is still running: the already-running thread's
+        own loop (`_run_generation`) re-checks for queued `voice_pick`
+        books each pass, so a book that reaches `voice_pick` (or gets
+        resumed) while generation is already underway still gets picked
+        up automatically -- see `start()`'s identical reasoning for the
+        identification loop. A currently-`generating` book is
+        deliberately left untouched here: only Pause/Cancel are allowed
+        to interrupt it (docs/requirements/06-safety-error-handling.md
+        §Cancel design).
+        """
         with self._lock:
+            for bid in self._book_order:
+                if self._books[bid].status == STATUS_PAUSED:
+                    self._books[bid] = replace(
+                        self._books[bid], status=STATUS_VOICE_PICK
+                    )
             if (
                 self._generation_thread is not None
                 and self._generation_thread.is_alive()
             ):
                 return
-            queued = [
-                bid
-                for bid in self._book_order
-                if self._books[bid].status in (STATUS_VOICE_PICK, STATUS_PAUSED)
-            ]
-            if not queued:
+            has_work = any(
+                self._books[bid].status == STATUS_VOICE_PICK for bid in self._book_order
+            )
+            if not has_work:
                 return
             self._generation_thread = threading.Thread(
-                target=self._run_generation, args=(queued,), daemon=True
+                target=self._run_generation, daemon=True
             )
             self._generation_thread.start()
 
-    def _run_generation(self, book_ids: list[str]) -> None:
+    def _run_generation(self) -> None:
         default_voice = self._settings.get("last_voice") or DEFAULT_VOICE
         audio_stage = AudioStage(
             self._sanitized_dir,
@@ -556,34 +608,44 @@ class BatchRunner:
             should_stop=self._should_stop_audio,
         )
 
-        for book_id in book_ids:
+        while True:
             with self._lock:
-                book = self._books[book_id]
-                if book.status not in (STATUS_VOICE_PICK, STATUS_PAUSED):
+                book_ids = [
+                    bid
+                    for bid in self._book_order
+                    if self._books[bid].status == STATUS_VOICE_PICK
+                ]
+            if not book_ids:
+                break
+
+            for book_id in book_ids:
+                with self._lock:
+                    book = self._books[book_id]
+                    if book.status != STATUS_VOICE_PICK:
+                        continue
+                    self._books[book_id] = replace(book, status=STATUS_GENERATING)
+                    book = self._books[book_id]
+
+                updated = audio_stage.run(book)
+
+                if updated.status == STATUS_CANCELLED:
+                    keep = self._cancel_requests.pop(book_id, "keep") == "keep"
+                    with self._lock:
+                        self._books[book_id] = updated
+                    self._finalize_cancel(book_id, keep_partial=keep)
                     continue
-                self._books[book_id] = replace(book, status=STATUS_GENERATING)
-                book = self._books[book_id]
 
-            updated = audio_stage.run(book)
+                if updated.status == STATUS_PAUSED:
+                    with self._lock:
+                        self._books[book_id] = updated
+                    continue
 
-            if updated.status == STATUS_CANCELLED:
-                keep = self._cancel_requests.pop(book_id, "keep") == "keep"
-                with self._lock:
-                    self._books[book_id] = updated
-                self._finalize_cancel(book_id, keep_partial=keep)
-                continue
+                if updated.status == STATUS_ERROR:
+                    with self._lock:
+                        self._books[book_id] = updated
+                    continue
 
-            if updated.status == STATUS_PAUSED:
-                with self._lock:
-                    self._books[book_id] = updated
-                continue
-
-            if updated.status == STATUS_ERROR:
-                with self._lock:
-                    self._books[book_id] = updated
-                continue
-
-            self._finish_generation(book_id, updated)
+                self._finish_generation(book_id, updated)
 
     def _on_audio_progress(
         self, book_id: str, chunks_done: int, chunks_total: int

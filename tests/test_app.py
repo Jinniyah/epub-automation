@@ -18,7 +18,7 @@ from flask.testing import FlaskClient
 
 import backend.bridge as bridge_module
 import backend.dialogs as dialogs_module
-from backend.app import create_app
+from backend.app import _origin_is_allowed, _safe_upload_path, create_app
 from pipeline.batch_runner import NeedsInputType
 
 _LONG_TEXT = "Some real narrative content, sentence by sentence. " * 20
@@ -54,7 +54,7 @@ def _make_epub_bytes(*, title: str = "Fated", author: str = "Benedict Jacka") ->
 
 @pytest.fixture
 def client(tmp_path: Path) -> FlaskClient:
-    app = create_app(appdata_dir=tmp_path, tts_engine=_FakeTTSEngine())  # type: ignore[arg-type]
+    app = create_app(appdata_dir=tmp_path, tts_engine=_FakeTTSEngine())
     app.config["TESTING"] = True
     return app.test_client()
 
@@ -95,6 +95,31 @@ def _wait_for_state(
 
 
 # ---------------------------------------------------------------------------
+# _origin_is_allowed -- the CSRF/Origin fix, tested directly
+# ---------------------------------------------------------------------------
+
+
+def test_origin_is_allowed_when_no_origin_header_present() -> None:
+    """Non-browser clients (curl, the CLI) never send Origin at all --
+    must not be blocked."""
+    assert _origin_is_allowed(None, "127.0.0.1:54321") is True
+
+
+def test_origin_is_allowed_when_it_matches_the_request_host() -> None:
+    assert _origin_is_allowed("http://127.0.0.1:54321", "127.0.0.1:54321") is True
+
+
+def test_origin_is_rejected_from_a_different_host() -> None:
+    assert _origin_is_allowed("https://evil.example", "127.0.0.1:54321") is False
+
+
+def test_origin_is_rejected_from_a_different_local_port() -> None:
+    """A page served by this same app on a different port (or a second,
+    unrelated local server) is still a different origin."""
+    assert _origin_is_allowed("http://127.0.0.1:9999", "127.0.0.1:54321") is False
+
+
+# ---------------------------------------------------------------------------
 # Health / status
 # ---------------------------------------------------------------------------
 
@@ -103,6 +128,35 @@ def test_health(client: FlaskClient) -> None:
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.get_json() == {"status": "ok"}
+
+
+def test_cross_origin_post_is_rejected(client: FlaskClient) -> None:
+    resp = client.post("/api/quit", headers={"Origin": "https://evil.example"})
+
+    assert resp.status_code == 403
+
+
+def test_same_origin_post_is_allowed(client: FlaskClient) -> None:
+    # A harmless, side-effect-free-on-an-empty-batch route -- deliberately
+    # not /api/quit here, since that spawns a real background thread that
+    # would otherwise outlive this test (see test_quit_route_... below for
+    # the test that's actually responsible for verifying quit's own
+    # behavior, and waits out that thread correctly).
+    # Flask's test client's default Host header is "localhost" -- match it
+    # so this genuinely proves a same-origin request still works, not just
+    # that no Origin header was sent.
+    resp = client.post("/api/batch/start", headers={"Origin": "http://localhost"})
+
+    assert resp.status_code == 200
+
+
+def test_cross_origin_get_is_not_blocked(client: FlaskClient) -> None:
+    """The Origin check only applies to mutating methods -- a read-only
+    GET (e.g. polling status from a legitimate future frontend embedded
+    differently) is never blocked by it."""
+    resp = client.get("/api/status", headers={"Origin": "https://evil.example"})
+
+    assert resp.status_code == 200
 
 
 def test_status_is_idle_for_a_fresh_app(client: FlaskClient) -> None:
@@ -172,6 +226,34 @@ def test_pick_folder_route_returns_none_when_cancelled(
 
 
 # ---------------------------------------------------------------------------
+# _safe_upload_path -- the path-traversal fix, tested directly
+# ---------------------------------------------------------------------------
+
+
+def test_safe_upload_path_stays_inside_tmp_dir_for_traversal_attempts(
+    tmp_path: Path,
+) -> None:
+    result = _safe_upload_path(tmp_path, 0, "..\\..\\..\\evil.epub")
+
+    assert tmp_path in result.parents
+
+
+def test_safe_upload_path_stays_inside_tmp_dir_for_an_absolute_filename(
+    tmp_path: Path,
+) -> None:
+    result = _safe_upload_path(tmp_path, 0, "C:\\Windows\\Temp\\evil.dll")
+
+    assert tmp_path in result.parents
+
+
+def test_safe_upload_path_indexes_avoid_collisions(tmp_path: Path) -> None:
+    a = _safe_upload_path(tmp_path, 0, "book.epub")
+    b = _safe_upload_path(tmp_path, 1, "book.epub")
+
+    assert a != b
+
+
+# ---------------------------------------------------------------------------
 # Screen 1: Add Books
 # ---------------------------------------------------------------------------
 
@@ -193,6 +275,41 @@ def test_add_book_rejects_a_non_epub_file(client: FlaskClient) -> None:
     result = resp.get_json()["results"][0]
     assert result["ok"] is False
     assert result["reason"] == "not_epub"
+
+
+def test_add_book_upload_filename_cannot_escape_the_temp_directory(
+    tmp_path: Path, client: FlaskClient
+) -> None:
+    """Regression test: a crafted multipart filename must never let the
+    upload write outside the request's own temp directory -- confirmed
+    directly that pathlib silently discards the temp-dir prefix when the
+    filename is itself absolute, before this fix was added."""
+    outside_target = tmp_path / "should-not-exist.txt"
+    data = _make_epub_bytes()
+
+    resp = client.post(
+        "/api/books",
+        data={"files": (io.BytesIO(data), str(outside_target))},
+        content_type="multipart/form-data",
+    )
+
+    assert resp.status_code == 200
+    assert not outside_target.exists()
+
+
+def test_add_book_upload_filename_with_traversal_sequences_is_sanitized(
+    client: FlaskClient,
+) -> None:
+    data = _make_epub_bytes()
+
+    resp = client.post(
+        "/api/books",
+        data={"files": (io.BytesIO(data), "..\\..\\..\\evil.epub")},
+        content_type="multipart/form-data",
+    )
+
+    result = resp.get_json()["results"][0]
+    assert result["ok"] is True  # still a valid, accepted EPUB once sanitized
 
 
 def test_remove_book_route(client: FlaskClient) -> None:
@@ -330,6 +447,22 @@ def test_retag_route_applies_overrides_after_review_no(client: FlaskClient) -> N
     assert body == {"ok": True, "status": "complete"}
 
 
+def test_retag_route_reports_failure_when_retag_itself_fails(
+    client: FlaskClient,
+) -> None:
+    """Regression test: a genuinely failed retag (e.g. no audio_folder to
+    retag yet) must not be reported as ok:true -- previously this route
+    always returned ok:true regardless of RetagStage's own result."""
+    added = _add_book_via_api(client)  # never started -- no audio_folder exists yet
+
+    resp = client.post(f"/api/books/{added['book_id']}/retag", json={"overrides": {}})
+
+    assert resp.status_code == 422
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert body["error"]
+
+
 def test_start_generation_route_starts_a_multi_book_batch(client: FlaskClient) -> None:
     one = _add_book_via_api(client, filename="one.epub", title="One")
     two = _add_book_via_api(client, filename="two.epub", title="Two")
@@ -443,6 +576,34 @@ def test_support_bundle_route_writes_a_file_without_the_api_key(
     content = Path(body["path"]).read_text(encoding="utf-8")
     assert "boom" in content
     assert "sk-secret" not in content
+
+
+def test_support_bundle_route_finds_the_real_error_without_the_client_supplying_it(
+    client: FlaskClient,
+) -> None:
+    """Regression test: build_status_response() never exposes a book's
+    raw error text (by design -- 01-architecture.md), so the support
+    bundle must go find it itself server-side rather than relying on the
+    client already knowing something the API never told it."""
+    import zipfile
+
+    broken = io.BytesIO()
+    with zipfile.ZipFile(broken, "w") as zf:
+        zf.writestr("mimetype", b"application/epub+zip")  # valid zip, unreadable EPUB
+    upload = client.post(
+        "/api/books",
+        data={"files": (io.BytesIO(broken.getvalue()), "broken.epub")},
+        content_type="multipart/form-data",
+    )
+    assert upload.get_json()["results"][0]["ok"] is True
+    client.post("/api/batch/start")
+    _wait_for_state(client, lambda s: s["state"] == "error")
+
+    resp = client.post("/api/support-bundle", json={})  # no technical_error supplied
+
+    body = resp.get_json()
+    content = Path(body["path"]).read_text(encoding="utf-8")
+    assert "Could not read EPUB" in content
 
 
 # ---------------------------------------------------------------------------

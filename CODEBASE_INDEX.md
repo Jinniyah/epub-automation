@@ -61,6 +61,84 @@ keyed by old version, add a row here.
 
 ## Session notes
 
+**Epic 6 post-review fixes (2026-07-10):** a full security + correctness
+review of the whole backend, requested after Epic 6 was committed and
+pushed. Five real findings, all fixed same session, plus the CI-blocking
+`mypy .` failure the user hit on GitHub Actions:
+
+- **HIGH, security:** `/api/books`' upload handler (`backend/app.py`)
+  built the on-disk save path directly from the client-supplied upload
+  filename, with no sanitization — a crafted filename (`..\..\evil.epub`,
+  or a full absolute path, which `pathlib` lets silently replace the
+  temp-dir prefix entirely) could write anywhere the process has write
+  access, including her Windows Startup folder, *before* any EPUB
+  validation ran. Fixed with `werkzeug.utils.secure_filename()` plus a
+  fail-closed resolved-path check (`backend/app.py::_safe_upload_path`).
+- **HIGH, security:** no CSRF/Origin protection anywhere in `backend/`.
+  Since several routes (`/api/quit`, `/api/batch/start`,
+  `/api/batch/start-generation`, and the upload route itself) accept a
+  body-less or non-JSON POST, a malicious webpage open in *another
+  browser tab* while the app is running could trigger them via a simple
+  cross-origin `fetch`/form POST that never triggers a CORS preflight —
+  silently killing the server or (combined with the finding above)
+  writing an arbitrary file, with zero interaction from her. Fixed with
+  an `Origin`-header check (`backend/app.py::_origin_is_allowed`,
+  wired via `@app.before_request`) requiring `Origin` to match
+  `request.host` whenever it's present at all (non-browser clients that
+  never send `Origin` are unaffected).
+- **Correctness:** the "Copy details for support" bundle
+  (06-safety-error-handling.md) could never actually work as specified —
+  `build_status_response()` deliberately never exposes a book's raw
+  error text (by design, so the polling endpoint never leaks a stack
+  trace), but nothing else exposed it either, so the client had no way to
+  supply `/api/support-bundle`'s `technical_error` field. Fixed by having
+  that route look the current error up itself, server-side
+  (`backend/bridge.py::current_error_detail()`), rather than trusting a
+  client that was never told the answer.
+- **Correctness:** `retag_route` always returned `ok: true` even when
+  `RetagStage` genuinely failed, unlike every other mutating route. Fixed
+  to check `updated.status` and return `422` with the real message.
+- **Correctness:** `BatchRunner.start()`/`start_generation()` were a
+  total no-op if their background thread was already alive — a book
+  added (or reaching `voice_pick`) during that window was silently
+  stranded until someone happened to call `start()`/`start_generation()`
+  again *after* the thread had already exited, with no error surfaced
+  anywhere. Fixed by making `_run_identification`/`_run_generation` loop
+  against live book state each pass instead of a fixed list captured
+  once at thread-start — genuinely self-healing now, proven by two new
+  regression tests that gate a stage mid-run and add/queue more work
+  while the thread is provably still alive. Resuming a paused book is
+  now implemented as flipping it back to `voice_pick` (the same queue
+  the self-healing loop already watches) rather than a separate case.
+- **CI fix:** the `mypy .` failure the user hit on GitHub Actions
+  (`tests/test_tts_engine.py`, `tests/test_audio_stage.py`) was the
+  *same* pre-existing gap flagged-but-never-fixed in Epic 4/5's own
+  session notes — fixed for real this time instead of continuing to
+  document it as a known gap. Root cause for the `_FakeTTSEngine`
+  vs. `TTSEngine` mismatches: added a `TTSEngineLike` Protocol
+  (`pipeline/tts_engine.py`, just `generate()`) and typed
+  `AudioStage`/`BatchRunner`/`create_app`'s `tts_engine` parameters
+  against it instead of the concrete class — a real `TTSEngine` still
+  satisfies it structurally, so no production call site changed, but
+  test fakes no longer need a `# type: ignore`. The remaining untyped
+  `ID3`/`MP3` mutagen calls got the same scoped
+  `disallow_untyped_calls = false` override already used for
+  `test_retag_stage`/`test_main`; one genuine `Optional` narrowing
+  (`MP3(...).info` can be `None` per mutagen's own types) got a real
+  `assert info is not None` instead of being silenced.
+- Found and fixed one flaky test of its own making along the way: a new
+  Origin-check test called `/api/quit` and monkeypatched `os._exit`
+  without waiting for the route's delayed background thread to actually
+  fire before returning — `monkeypatch` reverted the patch at teardown
+  while that thread was still sleeping, so the thread's *real* `os._exit`
+  call landed during a later, unrelated test and silently killed the
+  whole pytest process. Switched that test to a harmless route instead of
+  fixing it with more waiting, since it never needed `/api/quit`
+  specifically.
+- 390 total tests pass (up from 371), 95.9% coverage, `black`/`ruff`/
+  `mypy --strict` (`mypy .`, matching CI exactly) all clean with zero
+  remaining known gaps.
+
 **Epic 6 (2026-07-10):** the backend/Flask bridge. Several real design
 decisions and one class of bug surfaced during implementation, not just
 routine wiring:

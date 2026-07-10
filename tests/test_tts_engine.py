@@ -72,6 +72,10 @@ def test_generate_returns_valid_128kbps_mono_mp3(tmp_path: Path) -> None:
     out_path.write_bytes(mp3_bytes)
     info = MP3(str(out_path)).info
 
+    # mutagen types `.info` Optional; a file we just wrote ourselves always
+    # has real MP3 info -- narrow it for mypy and fail loudly (not
+    # silently) if that assumption is ever wrong.
+    assert info is not None
     assert info.bitrate == 128_000
     assert info.channels == 1
     assert info.sample_rate == KOKORO_SAMPLE_RATE

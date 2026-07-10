@@ -55,6 +55,20 @@ disallow_untyped_calls = false
 module = "tests.test_main"
 disallow_untyped_calls = false
 
+# Same rule again -- tests/test_audio_stage.py builds ID3 fixtures
+# directly (Epic 4), and tests/test_tts_engine.py reads a real MP3's tags
+# back via mutagen.mp3.MP3 to verify bitrate/channels/sample-rate (Epic
+# 4). Both were left failing `mypy .` when Epic 4 shipped despite that
+# epic's own session notes claiming a clean run -- fixed for real here
+# (Epic 6) instead of continuing to just flag it as known-and-ignored.
+[[tool.mypy.overrides]]
+module = "tests.test_audio_stage"
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = "tests.test_tts_engine"
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["tests"]

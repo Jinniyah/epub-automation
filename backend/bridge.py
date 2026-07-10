@@ -293,6 +293,27 @@ def _strip_secrets(settings: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in settings.items() if k not in _SECRET_SETTINGS_KEYS}
 
 
+def current_error_detail(books: list[BookState]) -> str:
+    """The raw technical error text for whichever book is currently in
+    `error` status, or `""` if none is.
+
+    This is the *only* place that real text is ever pulled from --
+    `build_status_response()` deliberately never includes it (its
+    `error.summary` is always the fixed generic string, per
+    01-architecture.md: "the real stack trace/technical detail is never
+    in this response"). Without this function, nothing could ever supply
+    `build_support_bundle()`'s `technical_error` with real content, since
+    the client has no route that ever told it what the error actually
+    was -- the support-bundle route calls this itself server-side rather
+    than trusting the caller to already know something the API never
+    exposed.
+    """
+    for book in books:
+        if book.status == STATUS_ERROR:
+            return str(book.data.get("error") or "")
+    return ""
+
+
 def build_support_bundle(
     *,
     settings: dict[str, Any],

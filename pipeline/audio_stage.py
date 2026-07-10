@@ -51,7 +51,7 @@ from pipeline.epub_reader import extract_cover_bytes
 from pipeline.epub_utils import MAX_CHUNK_CHARS, chunk_text, extract_chapters
 from pipeline.rename_stage import build_filename
 from pipeline.stage import BookState
-from pipeline.tts_engine import DEFAULT_VOICE, VOICES, TTSEngine
+from pipeline.tts_engine import DEFAULT_VOICE, VOICES, TTSEngineLike
 
 # Any existing MP3 above this size is treated as already-generated and
 # skipped -- ported verbatim from epub-to-audio's resume check (`mp3_path
@@ -84,7 +84,7 @@ class AudioStage:
         input_folder: Path,
         output_folder: Path,
         audit_log: AuditLogRepository,
-        tts_engine: TTSEngine,
+        tts_engine: TTSEngineLike,
         default_voice: str = DEFAULT_VOICE,
         max_chunk_chars: int = MAX_CHUNK_CHARS,
         max_chunk_retries: int = DEFAULT_MAX_CHUNK_RETRIES,

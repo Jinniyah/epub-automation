@@ -24,14 +24,15 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, Response, current_app, jsonify, request
+from werkzeug.utils import secure_filename
 
 from backend import bridge, dialogs
 from pipeline.audit_logger import AuditLogRepository
-from pipeline.batch_runner import BatchRunner
+from pipeline.batch_runner import STATUS_ERROR, BatchRunner
 from pipeline.config import SettingsRepository
 from pipeline.input_validation import DEFAULT_MAX_FILES
 from pipeline.state_manager import StateRepository
-from pipeline.tts_engine import TTSEngine
+from pipeline.tts_engine import TTSEngine, TTSEngineLike
 
 # A route handler may return either a bare JSON Response or a
 # (Response, status_code) tuple -- Flask's own accepted return shape.
@@ -50,7 +51,7 @@ def _build_runner(
     settings: dict[str, Any],
     state_repo: StateRepository,
     audit_log: AuditLogRepository,
-    tts_engine: TTSEngine,
+    tts_engine: TTSEngineLike,
 ) -> BatchRunner:
     output_folder = Path(settings.get("output_folder") or (appdata_dir / "Output"))
     return BatchRunner(
@@ -75,7 +76,7 @@ class AppState:
     settings_repo: SettingsRepository
     state_repo: StateRepository
     audit_log: AuditLogRepository
-    tts_engine: TTSEngine
+    tts_engine: TTSEngineLike
     settings: dict[str, Any]
     runner: BatchRunner
 
@@ -90,7 +91,7 @@ class AppState:
 
 
 def _build_app_state(
-    appdata_dir: Path, tts_engine: TTSEngine | None = None
+    appdata_dir: Path, tts_engine: TTSEngineLike | None = None
 ) -> AppState:
     settings_repo = SettingsRepository(appdata_dir / "settings.json")
     settings = settings_repo.load()
@@ -126,8 +127,62 @@ def _current_runner(state: AppState) -> BatchRunner:
     return state.runner
 
 
+def _safe_upload_path(tmp_dir: Path, index: int, client_filename: str) -> Path:
+    """A safe, unique path inside `tmp_dir` to save one uploaded file to.
+
+    `client_filename` is fully attacker-controlled (whatever a multipart
+    upload's `filename` field claims, from any origin -- see the CSRF/
+    Origin check below) and must never be used to build a filesystem path
+    directly: a value like `..\\..\\..\\evil.epub`, or a full absolute
+    path such as `C:\\Users\\<name>\\...\\Startup\\evil.exe`, would
+    otherwise let an upload write anywhere the process can write --
+    `pathlib` silently discards the left-hand side of `/` entirely when
+    the right-hand side is itself absolute. `secure_filename()` strips
+    path separators, drive letters, and `..` segments; the `index`
+    prefix keeps two uploads that happen to collide after sanitizing
+    (e.g. two non-ASCII names both becoming empty) from overwriting each
+    other within the same request.
+    """
+    safe_name = secure_filename(client_filename) or "upload"
+    candidate = (tmp_dir / f"{index}_{safe_name}").resolve()
+    if tmp_dir.resolve() not in candidate.parents:
+        # Should be unreachable given secure_filename() above -- fail
+        # closed rather than silently writing somewhere unexpected if a
+        # future change ever weakens that guarantee.
+        raise ValueError(
+            f"Refusing to save upload outside the temp directory: {candidate}"
+        )
+    return candidate
+
+
+# Methods that change state -- everything else (GET) is side-effect-free
+# and doesn't need an Origin check.
+_MUTATING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
+
+
+def _origin_is_allowed(origin: str | None, host: str) -> bool:
+    """CSRF/DNS-rebinding guard for a localhost-only, unauthenticated
+    API (ADR-0008). There's no login here to steal a session from, but a
+    malicious or compromised webpage open in *another browser tab* can
+    still issue a same-machine cross-origin request to this server --
+    `multipart/form-data` and body-less POSTs don't trigger a CORS
+    preflight, so the browser sends them regardless of what this server's
+    response says. Real browsers always set `Origin` on a cross-origin
+    fetch/XHR/form POST and cannot be scripted to omit or forge it, so
+    requiring it to match the address this request actually arrived on
+    (`request.host`, e.g. `"127.0.0.1:54321"`) blocks any other origin --
+    including a page served from this same app on a *different* port --
+    while still allowing this app's own future frontend (served from the
+    same origin) and non-browser tools (curl, the CLI's own eventual test
+    harness) that don't send `Origin` at all.
+    """
+    if origin is None:
+        return True
+    return origin == f"http://{host}"
+
+
 def create_app(
-    *, appdata_dir: Path | None = None, tts_engine: TTSEngine | None = None
+    *, appdata_dir: Path | None = None, tts_engine: TTSEngineLike | None = None
 ) -> Flask:
     app = Flask(__name__)
     app.config["APP_STATE"] = _build_app_state(
@@ -137,6 +192,17 @@ def create_app(
     def _state() -> AppState:
         state: AppState = current_app.config["APP_STATE"]
         return state
+
+    @app.before_request
+    def _reject_cross_origin_mutations() -> RouteResult | None:
+        if request.method in _MUTATING_METHODS and not _origin_is_allowed(
+            request.headers.get("Origin"), request.host
+        ):
+            return (
+                jsonify({"ok": False, "error": "Cross-origin request rejected."}),
+                403,
+            )
+        return None
 
     @app.get("/api/health")
     def health() -> Response:
@@ -201,10 +267,11 @@ def create_app(
         uploaded = request.files.getlist("files")
         results = []
         with tempfile.TemporaryDirectory(prefix="epub-automation-upload-") as tmp:
-            for f in uploaded:
+            tmp_dir = Path(tmp)
+            for i, f in enumerate(uploaded):
                 if not f.filename:
                     continue
-                temp_path = Path(tmp) / f.filename
+                temp_path = _safe_upload_path(tmp_dir, i, f.filename)
                 f.save(temp_path)
                 result = runner.add_book(temp_path)
                 results.append(
@@ -336,10 +403,13 @@ def create_app(
         return jsonify({"ok": True, "status": updated.status})
 
     @app.post("/api/books/<book_id>/retag")
-    def retag_route(book_id: str) -> Response:
+    def retag_route(book_id: str) -> RouteResult:
         body = request.get_json(silent=True) or {}
         overrides = body.get("overrides") or {}
         updated = _state().runner.retag_book(book_id, overrides)
+        if updated.status == STATUS_ERROR:
+            error = updated.data.get("error", "Retag failed.")
+            return jsonify({"ok": False, "error": error}), 422
         return jsonify({"ok": True, "status": updated.status})
 
     # ------------------------------------------------------------------
@@ -370,10 +440,17 @@ def create_app(
     def support_bundle_route() -> Response:
         state = _state()
         body = request.get_json(silent=True) or {}
+        # The client can supply extra context (e.g. what she was doing
+        # when she pressed the button), but the *real* error text comes
+        # from the runner's own live state -- build_status_response()
+        # never exposes it, so the client has no way to already know it.
+        technical_error = body.get("technical_error") or bridge.current_error_detail(
+            state.runner.snapshot()
+        )
         bundle = bridge.build_support_bundle(
             settings=state.settings,
             audit_log=state.audit_log,
-            technical_error=body.get("technical_error", ""),
+            technical_error=technical_error,
         )
         out_path = state.appdata_dir / "logs" / "support_bundle.txt"
         bridge.write_support_bundle(out_path, bundle)

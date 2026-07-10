@@ -23,6 +23,7 @@ from backend.bridge import (
     VoiceHistoryUnavailable,
     build_status_response,
     build_support_bundle,
+    current_error_detail,
     derive_batch_state,
     voice_history,
     write_support_bundle,
@@ -270,6 +271,36 @@ def test_voice_history_raises_distinctly_when_the_log_is_unreadable(
 
     with pytest.raises(VoiceHistoryUnavailable):
         voice_history(audit_log)
+
+
+# ---------------------------------------------------------------------------
+# current_error_detail -- the fix for the support bundle never getting
+# the real error text, since build_status_response() deliberately never
+# exposes it
+# ---------------------------------------------------------------------------
+
+
+def test_current_error_detail_finds_the_erroring_book() -> None:
+    books = [
+        _book("b1", "complete"),
+        _book("b2", "error", error="Could not read EPUB: bad zip"),
+    ]
+
+    assert current_error_detail(books) == "Could not read EPUB: bad zip"
+
+
+def test_current_error_detail_is_empty_when_nothing_is_erroring() -> None:
+    books = [_book("b1", "complete"), _book("b2", "voice_pick")]
+
+    assert current_error_detail(books) == ""
+
+
+def test_current_error_detail_is_empty_string_not_none_for_a_missing_error_field() -> (
+    None
+):
+    books = [_book("b1", "error")]  # no "error" key in data at all
+
+    assert current_error_detail(books) == ""
 
 
 # ---------------------------------------------------------------------------
