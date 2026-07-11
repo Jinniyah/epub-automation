@@ -54,7 +54,46 @@ assumption to an explicit, code-enforced requirement.
   only matter if networked access were also being added, which is
   explicitly out of scope.
 
+## Update (Epic 6, 2026-07-10): Origin-header check added
+
+A gap in the threat model above, found during a post-Epic-6 security
+review: "no authentication needed, localhost-only bind fully addresses
+the threat model" was true for the threat this ADR was written against
+— *other devices* reaching the API over the network. It understated a
+different threat still inside the localhost-only boundary: a malicious
+or compromised **webpage open in another browser tab on her own
+machine** can still send this server a request. Browsers only block
+that page's JavaScript from *reading* a cross-origin response — they
+don't stop the request from being *sent and acted on* in the first
+place, for request shapes that don't require a CORS preflight
+(`multipart/form-data`, or a body-less `POST`). Concretely, this made
+`POST /api/quit` (kills the server) and the file-upload route reachable
+from any webpage she happened to have open, with zero interaction from
+her.
+
+**Decision (unchanged in spirit, refined in scope):** every mutating
+request (`POST`/`PUT`/`DELETE`/`PATCH`) is now rejected with `403`
+unless its `Origin` header — when the browser sends one at all — equals
+`http://{request.host}`, i.e. the address the request actually arrived
+on (`backend/app.py::_origin_is_allowed()`, wired via a single
+`before_request` hook). Non-browser clients (curl, the CLI) never send
+`Origin` and are unaffected.
+
+**Why this isn't the "lightweight authentication" option already
+rejected above:** that alternative meant a shared secret/token guarding
+against *networked* access — real auth, with real complexity (issuing,
+storing, and checking a credential). An Origin check requires no secret
+at all; it can't be forged by a normal browser (which is the entire
+class of attacker this closes), and it does nothing against a genuinely
+malicious *local* process already running with her privileges — which
+was never in scope for this ADR either. It's the narrowest possible fix
+for the specific gap found, not a reopening of the auth question.
+
+Full route-by-route detail: `docs/requirements/01-architecture.md` §Full
+API route reference.
+
 ## References
-- `docs/requirements/01-architecture.md` §Network Binding & Security
+- `docs/requirements/01-architecture.md` §Network Binding & Security,
+  §Full API route reference
 - `docs/requirements/00-overview-and-goals.md` §Non-goals (multi-user/
   networked use)

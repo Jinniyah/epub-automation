@@ -1,5 +1,5 @@
 # CLAUDE.md — AI Development Rules for epub-automation
-# Last updated: 2026-07-10 — Epics 0-6 complete. Epic 1: PyInstaller build+exe verified on Windows. Epic 2: sanitize_stage.py, 29 tests. Epic 3: rename_stage.py + ai_providers/ (gemini/openai/none) + epub_reader.py/epub_utils.py, 65 new tests. Epic 4: tts_engine.py + audio_stage.py (Kokoro TTS, lameenc MP3 encoding), 57 new tests. Epic 5: retag_stage.py (folder-rename bug fix over the original script, reuses rename_stage.build_filename()), 29 new tests. Epic 6: backend/Flask bridge — pipeline/batch_runner.py (BatchRunner, the stateful GUI engine), backend/app.py + bridge.py + dialogs.py, launcher.py (free-port discovery + browser fallback), main.py CLI wired to real stages via pipeline/cli_runner.py, pipeline/input_validation.py + disk_space.py, 138 new tests. Post-commit security/correctness review found and fixed: upload path traversal, missing CSRF/Origin protection, the support-bundle error-text gap, retag_route's ok:true-on-failure bug, and a stuck-book race in BatchRunner's start()/start_generation() — see CODEBASE_INDEX.md's "Epic 6 post-review fixes" session note. 390 total tests pass. Next: Epic 7 (frontend scaffolding).
+# Last updated: 2026-07-10 — Epics 0-6 complete (390 tests, 95.9% coverage, black/ruff/mypy --strict clean). Full epic-by-epic history: CODEBASE_INDEX.md's Session notes. Next: Epic 7 (frontend scaffolding) — see docs/BACKLOG.md for the Vite dev-proxy/Origin-header decision made ahead of it.
 
 ---
 
@@ -106,6 +106,7 @@ source tools had a GUI at all.
 | Reuse principle | Port existing implementations by default | ADR-0014 |
 | Accessibility | WCAG 2.1 AA alignment (not certified) via shared hooks; automated tests are the CI floor, manual passes best-effort | ADR-0015 |
 | Dependency pinning | Exact versions, not ranges, in `requirements.txt` | `08-open-questions-and-assumptions.md` |
+| CSRF/Origin check | Mutating routes reject a mismatched `Origin` header (ADR-0008 addendum, Epic 6 post-review). **Dev-time (Epic 7):** fixed via Vite proxy + Origin-header rewrite so dev traffic looks same-origin, matching prod — the check itself is never relaxed, since dev and prod share the same backend code path. | `backend/app.py::_origin_is_allowed()`, `frontend/README.md` |
 
 ## Flagged open items
 

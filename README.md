@@ -6,26 +6,27 @@ CLI for technical use, and a local web GUI designed for someone who
 can't run scripts from a terminal and has real physical constraints
 using a computer.
 
-> **Status: design phase complete, no code written yet.** Everything in
-> this README describes the target design, not a working build. Full
-> requirement docs live in [`docs/requirements/`](docs/requirements/);
-> a design-review pass produced
+> **Status: the shared pipeline core and both API surfaces are built and
+> tested; the accessible GUI itself isn't usable yet.** Epics 0–6 are
+> complete: every pipeline stage (rename, sanitize, audio, retag), the
+> CLI front door, and the Flask/JSON backend the GUI will talk to are
+> all real, working code — 390 tests passing, ~96% coverage, `black`/
+> `ruff`/`mypy --strict` clean, all CI-enforced. What's *not* built yet
+> is the React frontend itself (Epic 7+) — the backend serves a real
+> API today, but there's no browser UI in front of it, so the
+> accessible GUI this project exists for isn't something she can use
+> yet. The CLI, on the other hand, is fully usable right now — see
+> [Getting started](#getting-started) below. Full requirement docs live
+> in [`docs/requirements/`](docs/requirements/);
 > [`docs/design/SYSTEM_DESIGN.md`](docs/design/SYSTEM_DESIGN.md) and
 > [`docs/design/adr/`](docs/design/adr/) (one Architecture Decision
-> Record per binding decision). A later, final pre-coding review —
-> [`docs/design_review.md`](docs/design_review.md) — independently
-> re-verified the reuse/licensing claims below against the actual
-> source repos and closed a handful of gaps (schema versioning on
-> `settings.json`, stale single-instance-lock recovery, and a few
-> others) directly in the documents above; see that file's verdict and
-> `docs/design/adr/README.md`'s "Post-review fixes" note for what
-> changed and why. [`docs/design/PATTERNS.md`](docs/design/PATTERNS.md)
-> then captures the concrete Python/React implementation patterns
-> (Strategy, Pipeline, Repository, State Machine, and more) the actual
-> build should follow, and [`docs/BACKLOG.md`](docs/BACKLOG.md)
-> sequences all of it into epics/stories for the build itself. If
-> you're looking at this repo before a build session has happened, the
-> documentation *is* the deliverable so far.
+> Record per binding decision, several refined post-implementation as
+> real gaps were found — see that folder's `README.md`) capture *why*
+> it's built this way, [`docs/design/PATTERNS.md`](docs/design/PATTERNS.md)
+> the concrete implementation patterns it follows, and
+> [`docs/BACKLOG.md`](docs/BACKLOG.md) the epic-by-epic build order —
+> [`CODEBASE_INDEX.md`](CODEBASE_INDEX.md) is the up-to-date file map of
+> what's real versus still a placeholder.
 
 ## What it does
 
@@ -54,7 +55,8 @@ pipeline engine. Neither contains its own copy of the pipeline logic.
 ## Two front doors, one real reason for each
 
 - **CLI / advanced mode** — for technical use, scriptable, exposes
-  every stage and flag independently.
+  every stage and flag independently. **Working today** — see
+  [Getting started](#getting-started).
 - **Accessible local web GUI** — built for a specific, real person: one
   with **fibromyalgia** (difficulty learning and holding multi-step
   processes in mind) and **rheumatoid arthritis in her fingers**
@@ -63,12 +65,65 @@ pipeline engine. Neither contains its own copy of the pipeline logic.
   project is evaluated against those two constraints specifically, not
   a generic "make it friendly" goal. See
   [`docs/requirements/03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md)
-  for the full screen-by-screen design.
+  for the full screen-by-screen design. **The backend API this GUI
+  needs is complete and tested** — every route it calls
+  ([full reference](docs/requirements/01-architecture.md#full-api-route-reference-epic-6-backendapppy))
+  exists and works — **but the React frontend itself hasn't been built
+  yet** (Epic 7+), so there's no browser screen to actually click
+  through yet.
 
 The GUI runs as a background Flask server the browser talks to over
 polling — not a desktop-window wrapper — specifically so that closing
 the browser tab never kills a multi-hour audio generation job. See
 [ADR-0001](docs/design/adr/0001-flask-waitress-react-over-pywebview.md).
+
+## Getting started
+
+Windows only, Python 3.11+. This sets up the CLI — the one front door
+that's actually usable today (see the status note at the top of this
+README).
+
+```powershell
+git clone https://github.com/Jinniyah/epub-automation.git
+cd epub-automation
+make venv
+.\.venv\Scripts\Activate.ps1
+make install
+```
+
+The CLI reads `books_folder`/`output_folder` from
+`%APPDATA%\EpubAutomation\settings.json` (created empty on first run —
+see [`05-data-settings-and-logging.md`](docs/requirements/05-data-settings-and-logging.md)).
+There's no GUI yet to set these through, so either hand-edit that file,
+or just leave them unset — both default to the current directory, so
+running a command from a folder full of `.epub` files works too:
+
+```powershell
+python main.py rename      # normalize filenames using EPUB metadata
+python main.py sanitize    # remove profanity, using the bundled word list
+python main.py audio       # generate a chaptered, tagged MP3 audiobook
+python main.py all         # rename -> sanitize -> audio in one pass
+python main.py retag <audiobook-folder> --title "..." --author-last "..."
+```
+
+`ai_provider`/`ai_api_key` (for AI-assisted metadata enrichment) live in
+the same `settings.json`; `ai_provider` defaults to `"none"`, which
+still works fine using each EPUB's own embedded metadata.
+
+Common development commands (see the [`Makefile`](Makefile) for the
+full list):
+
+```powershell
+make test      # pytest, fast (excludes slow/real-Kokoro tests)
+make coverage  # pytest with the 80%+ coverage gate CI enforces
+make check     # lint + typecheck + coverage -- what CI actually runs
+make format    # black + ruff --fix
+```
+
+`python launcher.py` starts the Flask/waitress backend on a free local
+port and opens a browser tab to it — useful for exercising the API
+directly (or once frontend work starts) but not yet a working GUI,
+since there's no page there to serve yet.
 
 ## Accessibility beyond the primary persona: WCAG 2.1 AA alignment
 
@@ -144,22 +199,24 @@ other. See [ADR-0003](docs/design/adr/0003-pluggable-user-keyed-ai-provider.md).
 | [`docs/design/adr/`](docs/design/adr/) | One Architecture Decision Record per binding decision — the alternatives considered and the tradeoffs accepted. Source of truth for *why*. |
 | [`docs/design/PATTERNS.md`](docs/design/PATTERNS.md) | The concrete Python/React design patterns (Strategy, Pipeline, Repository, State Machine, and more) implementation should follow. Source of truth for *how*. |
 | [`docs/design_review.md`](docs/design_review.md) | A final pre-coding design review — independent verification of the reuse/licensing claims above against the actual source repos, plus a GO/NO-GO verdict and the fixes it produced. |
-| [`docs/BACKLOG.md`](docs/BACKLOG.md) | The implementation backlog — epics and stories sequencing the whole build, with risk-ordered priorities. Source of truth for *what order*. |
+| [`docs/BACKLOG.md`](docs/BACKLOG.md) | The implementation backlog — epics and stories sequencing the whole build, with risk-ordered priorities. Source of truth for *what order*, and for what's actually done vs. not yet started. |
+| [`CODEBASE_INDEX.md`](CODEBASE_INDEX.md) | The file map — every real module, what it does, and which epic built it, kept current as placeholders become real code. Start here if you want to know "is *this* actually implemented." |
 | [`CLAUDE.md`](CLAUDE.md) | AI-assistant development rules for this repo — also a decent quick-reference table of every key decision, if you don't want to read the full docs. |
 
 `docs/requirements/` and `docs/design/` are kept explicitly reconciled
 with each other; if you find them disagreeing, that's a bug in the
 docs, not an intentional split of authority.
 
-## Planned tech stack
+## Tech stack
 
-| Layer | Choice |
-|---|---|
-| Core pipeline | Python 3.11+ |
-| GUI backend | Flask, served via `waitress`, bound to `127.0.0.1` only |
-| GUI frontend | React (Vite build), bundled static output — no Node/npm needed at runtime |
-| Text-to-speech | `kokoro` (Kokoro-82M, local inference) |
-| Packaging | PyInstaller, single `.exe` (Windows-only for v1) |
+| Layer | Choice | Status |
+|---|---|---|
+| Core pipeline | Python 3.11+ | Built |
+| GUI backend | Flask, served via `waitress`, bound to `127.0.0.1` only | Built |
+| GUI frontend | React (Vite build), bundled static output — no Node/npm needed at runtime | Not started (Epic 7+) |
+| Text-to-speech | `kokoro` (Kokoro-82M, local inference) | Built |
+| Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 |
+| Testing | `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict` — all CI-enforced | Built, 390 tests passing |
 
 ## License
 

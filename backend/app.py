@@ -175,6 +175,13 @@ def _origin_is_allowed(origin: str | None, host: str) -> bool:
     while still allowing this app's own future frontend (served from the
     same origin) and non-browser tools (curl, the CLI's own eventual test
     harness) that don't send `Origin` at all.
+
+    Dev note (Epic 7): the Vite dev server runs on its own port, separate
+    from Flask's dynamically-assigned one, which makes a raw dev-time
+    `fetch()` genuinely cross-origin and therefore rejected here by
+    design. Fix it on the frontend side (Vite proxy + Origin-header
+    rewrite, see `frontend/README.md`) -- do not relax this check itself,
+    since dev and prod share this same code path.
     """
     if origin is None:
         return True

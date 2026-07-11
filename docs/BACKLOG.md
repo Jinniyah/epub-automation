@@ -130,9 +130,15 @@ Highest-risk stage: the only full language port, security-critical
   verbatim, ADR-0016 confirms it only matches shape, not characters.
 - [x] Per-file silent fallback to `NullProvider` on AI failure — both at
   construction time (bad config) and per-`run()` call (runtime failure).
-- [ ] MAX_FILES overflow: reject excess books individually at Screen 1 —
-  genuinely Epic 8 scope (no Screen 1 exists yet); left unchecked here,
-  tracked there.
+- **Deferred at the time:** MAX_FILES overflow (rejecting excess books
+  individually at Screen 1) needed a Screen 1 that didn't exist yet.
+  **Resolved in Epic 6:** the enforcement itself is now built —
+  `pipeline/input_validation.py::check_batch_capacity()`, wired into
+  `BatchRunner.add_book()` and exposed per-file via `POST /api/books`
+  (`reason: "max_files_exceeded"`, a ready-to-display friendly message).
+  Only the Screen 1 UI rendering of that per-file rejection is still
+  open — moved to Epic 8's own checklist below, since that's genuinely
+  the earliest point it can be finished.
 - [x] **New this epic, not originally listed:** `pipeline/epub_utils.py`
   `sanitize_filesystem_name()` (ADR-0016) — shared by rename now, retag
   (Epic 5) later. `pipeline/epub_reader.py` ported verbatim
@@ -179,18 +185,31 @@ Highest-risk stage: the only full language port, security-critical
   biased toward overestimating) — `pipeline/tts_engine.py::
   estimate_audio_bytes()`. Pure function, reusable by both CLI and GUI
   once a Screen 1 exists to call it (Epic 8).
-- [ ] Session-local same-series voice default (no persisted memory) —
-  genuinely Epic 8 scope, not this stage: it requires knowing which
-  books in the *current batch* share a series, which `Stage.run()`'s
-  per-book signature has no visibility into (same reasoning Epic 3 used
-  to defer `MAX_FILES` batch-level enforcement). `AudioStage` takes
-  whatever voice the caller already resolved via `book.data["voice"]`.
-- [ ] **Open:** CPU vs. GPU benchmarking on real hardware — produces
-  `SECONDS_PER_CHAR` and the Working-screen time estimate. Needs real
-  hardware, not resolvable from this session.
-- [ ] **Open:** Kokoro vs. Perchance parity QA pass before retiring the
-  Selenium path. Needs a real side-by-side listen, not resolvable from
-  this session.
+- **Deferred at the time:** session-local same-series voice default (no
+  persisted memory) — genuinely not this stage's job: it requires
+  knowing which books in the *current batch* share a series, which
+  `Stage.run()`'s per-book signature has no visibility into (same
+  reasoning Epic 3 used to defer `MAX_FILES` batch-level enforcement).
+  `AudioStage` takes whatever voice the caller already resolved via
+  `book.data["voice"]`. **Partly resolved in Epic 6:**
+  `pipeline/batch_runner.py::BatchRunner` now exists and *does* have
+  full batch visibility (the blocking reason above no longer applies),
+  but its `_maybe_enter_voice_pick()` only implements a single uniform
+  global default (`settings.last_voice`) for every book — not the
+  series-grouping default `03-gui-ux-design.md` describes. That page's
+  own wording turned out to be ambiguous/effectively vacuous for the
+  single-global-default case (see `CODEBASE_INDEX.md`'s Epic 6 session
+  notes for the full reasoning). Whether a real series-grouping
+  implementation is actually needed, once the multi-book voice table
+  screen makes the question concrete, is moved to Epic 8's own
+  checklist below.
+- **Deferred at the time, needs real hardware/a real listen, not
+  resolvable in any coding session:** CPU vs. GPU benchmarking
+  (produces the real `SECONDS_PER_CHAR` the Working-screen time
+  estimate needs) and a Kokoro vs. Perchance parity QA pass before
+  retiring the Selenium path. Both moved to Epic 10's checklist below —
+  the first point a packaged `.exe` gets run on real target hardware,
+  not a dev machine.
 
 **New this epic, not originally listed:** `pipeline/epub_reader.py::
 extract_cover_bytes()` (3-strategy fallback, ported verbatim from
@@ -274,12 +293,25 @@ the same artifact, and a real false-positive in `pipeline/safe_zip.py`'s
 XXE guard (flagged every plain `<!DOCTYPE html>`, not just a dangerous
 one) — full detail in `CODEBASE_INDEX.md`'s Epic 6 session notes.
 
+**Also decided post-Epic-6 (2026-07-10, before Epic 7 started):** the
+Origin/CSRF check added in the post-review fixes above will reject the
+Vite dev server's cross-origin traffic during Epic 7/8 development
+(different port than Flask's dynamically-assigned one). Resolved as a
+frontend-side fix, not a backend relaxation — see Epic 7's first
+checklist item and `frontend/README.md`.
+
 ---
 
 ## Epic 7 — Frontend Scaffolding
 
 - [ ] Vite + React setup (build-time only, no runtime Node/npm in the
   packaged `.exe`)
+- [ ] **Dev-server proxy + Origin-header rewrite** so Vite's dev origin
+  doesn't trip `backend/app.py::_origin_is_allowed()`'s CSRF/Origin
+  check (added in the Epic 6 post-review fixes) — config and full
+  rationale already drafted in `frontend/README.md`. Fix stays entirely
+  on the frontend side; the backend check itself must not be relaxed,
+  since dev and prod share that code path.
 - [ ] API-client facade wrapping all `fetch` calls
 - [ ] `usePollingStatus()`, `useFocusTrap()`, `useAriaLiveThrottled()` hooks
 - [ ] `useReducer`-based local UI state
@@ -297,11 +329,20 @@ meet WCAG 2.1 AA alignment before being done.
 - [ ] AI Helper Setup (provider choice, key entry, masked display)
 - [ ] "Welcome back" screen (state-file driven)
 - [ ] Screen 1: Add Books (drag-and-drop + button, per-book Remove,
-  stage toggles)
+  stage toggles). Includes displaying the `MAX_FILES`-exceeded
+  rejection message per file — the enforcement + friendly message are
+  already built server-side (Epic 6, `POST /api/books`'s per-file
+  `reason: "max_files_exceeded"`); this is purely wiring the UI to show
+  it, not new backend work (moved here from Epic 3).
 - [ ] Field Correction Popup (one shared component, reused everywhere)
 - [ ] Per-book identification loop
 - [ ] Voice assignment (single-book + multi-book table, shared
-  view-model hook)
+  view-model hook). Decide whether the session-local same-series
+  default (moved here from Epic 4) is actually worth implementing once
+  this screen is real — `BatchRunner` currently gives every book the
+  same single global default regardless of series, which may turn out
+  to already satisfy `03-gui-ux-design.md`'s intent (see the Epic 4
+  entry's note on why that page's wording was ambiguous here).
 - [ ] Screen: Working (dynamic time estimate, Pause/Cancel, Quit for now)
 - [ ] Screen: Review (per-book link + output-folder link)
 - [ ] "No, let me fix it" flow (feeds `retag_stage.py`)
@@ -332,6 +373,14 @@ meet WCAG 2.1 AA alignment before being done.
   clipboard-copied address
 - [ ] First-run setup screen tied to the lazy trigger point
 - [ ] Verify uninstall is genuinely two deletions
+- [ ] **Moved from Epic 4:** CPU vs. GPU benchmarking on real target
+  hardware — produces the real `SECONDS_PER_CHAR` constant
+  (`pipeline/tts_engine.py`) the Working-screen time estimate needs,
+  replacing the current placeholder. Needs a real packaged `.exe` on
+  real hardware, which this epic is the first point that exists.
+- [ ] **Moved from Epic 4:** Kokoro vs. Perchance output parity QA pass
+  — a real side-by-side listen before fully retiring the old
+  Selenium/Perchance path as a fallback option.
 
 ---
 
@@ -352,9 +401,12 @@ meet WCAG 2.1 AA alignment before being done.
 |---|---|
 | Kokoro/PyInstaller packaging risk | 1 — done |
 | Dependency version pinning | 0 — done |
-| Perchance vs. Kokoro output parity | 4 |
-| CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 4 |
+| Perchance vs. Kokoro output parity | 10 (moved from 4 — needs a real packaged `.exe` on real hardware) |
+| CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 10 (moved from 4, same reason) |
+| MAX_FILES-exceeded rejection message, Screen 1 UI | 8 (moved from 3 — backend enforcement done, Epic 6) |
+| Session-local same-series voice default | 8 (moved from 4 — `BatchRunner` exists, Epic 6, but only implements a single global default; decide if more is actually needed once this screen is real) |
 | Her-facing copy wording, unassisted dry-run test | 9 |
 | Screen-reader tester confirmation | 9 |
 | Per-series voice memory, second look | 9 |
 | "Welcome back" full state-file-driven resume (rebuild a live `BatchRunner` after a backend restart) — `GET /api/welcome-back` detection-only endpoint already exists (Epic 6) | 8 |
+| Vite dev-server Origin/CSRF proxy config — frontend-side fix, backend check unchanged | 7 |

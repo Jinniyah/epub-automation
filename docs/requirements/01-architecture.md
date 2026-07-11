@@ -225,6 +225,141 @@ restart, this response must be reconstructable entirely from the state
 file on disk, which is also what makes the "Pick up where you left off?"
 flow (`06-safety-error-handling.md` §Long-run resilience) possible.
 
+**Implementation note (Epic 6, `backend/bridge.py::derive_batch_state()`):**
+the precedence rule above buckets *any* `needs_input` book under
+`identifying`, written before `needs_input.type` grew two more values this
+epic needed — `review_result` (a book awaiting her Yes/No after
+generation) and `output_collision` (a naming clash with an existing file
+in `output_folder`, mid-generation; see §Full API route reference below).
+Taken completely literally, a book awaiting Review would incorrectly
+demote the whole batch back to the per-book identification screen. The
+actual implementation instead buckets a `needs_input` book by *which*
+step it's waiting on: `confirm_metadata`/`ai_enrichment_failed` still
+mean `identifying` (the rule's original intent), `output_collision` means
+`working` (it happens mid-generation, blocking only that one book), and
+`review_result` means `review`. Every other precedence boundary above is
+implemented exactly as written. Full reasoning in that function's own
+docstring — this note exists so this document and the code it describes
+don't silently diverge.
+
+## Full API route reference (Epic 6, `backend/app.py`)
+
+Every route below is namespaced under `/api/`, returns JSON, and is a
+thin Adapter over `pipeline/batch_runner.py`'s `BatchRunner` (ADR-0001,
+`docs/design/PATTERNS.md` §1) — none of them contain a decision beyond
+parsing the request and shaping the response. `GET` routes are
+side-effect-free; every other method (`POST`/`PUT`/`DELETE`/`PATCH`) is
+rejected with `403` unless its `Origin` header (when the browser sends
+one at all) matches the address the request actually arrived on — see
+ADR-0008's "Origin-header check" addendum.
+
+**Dev-time note (Epic 7):** this Origin check is correct in production
+(single origin: Flask serves the built React `dist/`), but Vite's dev
+server runs on a separate port, which makes plain dev-time `fetch()`
+calls genuinely cross-origin and therefore `403`'d by design. This is
+resolved on the frontend side — Vite proxy config + an Origin-header
+rewrite so the request Flask receives looks same-origin, matching
+production traffic — not by relaxing this check itself, since dev and
+prod share the same backend code path. Full config and rationale:
+`frontend/README.md`.
+
+A mutating route's JSON success body always includes `"ok": true`; a
+failure is a non-2xx status with `{"ok": false, "error": "..."}` — with
+one exception, `POST /api/books`, which reports success/failure
+per-uploaded-file inside a `200` response rather than for the request as
+a whole (see below).
+
+### Status polling
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `GET /api/health` | — | `{"status": "ok"}` | Liveness only, not part of the polling contract. |
+| `GET /api/status` | — | The full status contract above | What every screen polls. |
+
+### Settings (`05-data-settings-and-logging.md`)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `GET /api/settings` | — | `settings.json`'s contents, with `ai_api_key` replaced by `has_ai_api_key: bool` | `ai_api_key`'s real value is never returned over this API, ever (masked like a password field, `03-gui-ux-design.md`). |
+| `POST /api/settings` | Any subset of settings fields to update (e.g. `{"books_folder": "...", "profanity_words": [...]}`) | `{"ok": true}` | A partial update, merged into the existing settings and saved atomically (ADR-0005). `schema_version` in the body is silently ignored (server-owned). No read-modify-write protection beyond the single-process lock already implicit in one `BatchRunner`/app instance — acceptable for a single local user (ADR-0008's threat model), but a frontend doing "fetch current list, mutate one word, POST the whole array back" (`profanity_words`, `03-gui-ux-design.md` §Words to clean up) should still fetch-then-send in that order, not assume anything about concurrent writers. |
+
+### Native folder picker (ADR-0006)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/dialogs/folder` | `{"title": "...", "initial_dir": "..."}` (both optional) | `{"path": "C:\\..." \| null}` | `null` means she cancelled the dialog. Pops a real native OS dialog — this call blocks until she closes it. |
+
+### Screen 1: Add Books
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books` | `multipart/form-data`, one or more `files` fields | `{"results": [{"ok": bool, "original_filename": str, "book_id": str \| null, "reason": str \| null, "message": str \| null}, ...]}` | One result per uploaded file, **not** a single pass/fail for the whole request — a batch of 5 files where 1 is DRM-protected still returns `200` with 4 successes and 1 `ok: false` entry (`06-safety-error-handling.md` §Input validation: rejected individually, never a silent skip). `reason` is one of `not_epub` / `damaged` / `drm_protected` / `max_files_exceeded` (`pipeline/input_validation.py::RejectionReason`); `message` is the exact plain-language string to show her. Once the current batch is `done`, the next call to this route transparently starts a fresh batch (`backend/app.py::_current_runner()`). |
+| `DELETE /api/books/<book_id>` | — | `{"ok": bool}` | `ok: false` if the book isn't in `pending` status (already started processing — use Cancel instead, `03-gui-ux-design.md` §Screen 1). |
+| `GET /api/disk-space` | — | `{"estimated_total_bytes": int, "any_insufficient": bool, "checked_paths": [{"path": str, "free_bytes": int, "sufficient": bool}, ...]}` | Pre-Start disk-space check, summed across every book currently in the batch (`06-safety-error-handling.md` §Resource & cost safety). Call again after adding/removing books. |
+
+### Batch lifecycle
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/batch/start` | — | `{"ok": true}` | Starts the identification loop (rename → sanitize) for every `pending` book. Safe to call repeatedly, including while it's already running — a book added afterward is picked up automatically, not stranded. |
+| `POST /api/batch/start-generation` | — | `{"ok": true}` | "Start All Books" — starts serial audio generation (ADR-0009) for every book at `voice_pick`, and resumes any `paused` book. Also safe to call repeatedly. Never needed for a single-book batch — picking a voice already auto-starts it (`03-gui-ux-design.md` §Voice assignment). |
+
+### Per-book identification loop
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/confirm` | `{"corrections": {"title": ..., "author_first": ..., "author_last": ..., "series": ..., "series_number": ...} \| null}` | `{"ok": true, "status": str}` or `409` if the book isn't currently awaiting confirmation | The "Confirm metadata" step (`03-gui-ux-design.md` §Per-book identification loop) — send only the fields she actually changed via the Field Correction Popup, or `null`/`{}` to accept as-is. The whole batch only advances to voice assignment once every book has been confirmed. |
+
+### Voice assignment
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/voice` | `{"voice": "af_heart"}` (a key from `pipeline/tts_engine.py::VOICES`) | `{"ok": true, "voice": str}`, `400` if `voice` missing, `409` if the book isn't at `voice_pick` | "Change Voice" (multi-book table) or the single-book picker's selection. |
+
+### Pause / Cancel (`06-safety-error-handling.md` §Cancel design)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/pause` | — | `{"ok": true}` | No-op if the book isn't currently generating. Takes effect before the *next* chunk, not mid-chunk. |
+| `POST /api/books/<book_id>/cancel` | `{"keep_partial": bool}` (default `true`) | `{"ok": true, "status": "cancelled"}` | `keep_partial: true` (the default/safer option, pre-selected per spec) leaves already-generated chunks on disk for a later resume; `false` deletes them. |
+
+### Output collision (this epic's own addition — see the state-derivation note above)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/collision` | `{"choice": "replace" \| "keep_both"}` | `{"ok": true, "status": str}`, `400` for an invalid `choice`, `409` if there's no pending collision | Surfaces when a finished audiobook's folder name already exists in `output_folder` (`06-safety-error-handling.md` §Concurrency & duplicate handling). The pending collision's detail (`{"artifact": "audiobook", "path": "..."}`) is on the `needs_input` object in `/api/status` when `needs_input.type == "output_collision"`. |
+
+### Review + "No, let me fix it" (`02-pipeline-stages.md` §Stage 4)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/review` | `{"looks_good": bool}` | `{"ok": true, "status": str}`, `409` if there's no pending review | `looks_good: true` marks the book `complete` and triggers ADR-0017 cleanup. `looks_good: false` leaves the book parked, waiting for the corrected fields via the `retag` route below — it does not, by itself, open any correction UI (that's a frontend concern). |
+| `POST /api/books/<book_id>/retag` | `{"overrides": {"title": ..., "author_first": ..., "author_last": ..., "series": ..., "series_number": ...}}` | `{"ok": true, "status": "complete"}` on success; `{"ok": false, "error": str}` with **`422`** if the retag itself failed (e.g. author/title still can't be resolved) | The one place a `2xx`-vs-failure distinction rides entirely on the JSON body's `ok` field doesn't apply — a genuine failure here is a real non-2xx status, unlike the upload route above. |
+
+### "What voice did I use before?" (`03-gui-ux-design.md` §Settings areas)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `GET /api/voice-history` | — | `{"ok": true, "history": [{"label": str, "voice": str}, ...]}`, or `{"ok": false, "error": "Something went wrong finding your voice history."}` with `500` | `history: []` (with `ok: true`) means legitimately no audiobooks made yet; the `500` case means the audit log itself couldn't be read — render these two states with different copy, never conflate them (`03-gui-ux-design.md`'s own explicit requirement). |
+
+### Error communication (`06-safety-error-handling.md` §Error communication)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/support-bundle` | `{"technical_error": "..."}` (optional) | `{"ok": true, "path": "C:\\...\\logs\\support_bundle.txt"}` | The real technical error is looked up server-side from whichever book is currently `error`-status if the request body doesn't supply one — the client is never able to supply this itself in practice, since no other route ever exposes a book's raw error text (`backend/bridge.py::current_error_detail()`). The written file never contains `ai_api_key` or any other secret. |
+
+### "Welcome back" — detection only (`06-safety-error-handling.md` §Long-run resilience)
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `GET /api/welcome-back` | — | `{"pending_book_ids": [str, ...]}` | Answers "is anything pending" from `state.json` alone. **Does not** reconstruct a live `BatchRunner` for those books — actually resuming a batch across a backend restart is Epic 8 scope, once the "Welcome back" screen exists to drive it (`docs/BACKLOG.md`). |
+
+### Quit
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/quit` | — | `{"ok": true}` | Stops the background server itself (ADR-0001's "closing the tab isn't enough" requirement), not just the browser tab. Exits the process directly (`os._exit(0)`, from a short-delayed background thread so the response reaches her first) rather than a graceful in-process waitress shutdown — see ADR-0007's stale-lock detection, which already treats an abruptly-terminated process as an expected, recoverable case. |
+
 ## Why these specific technology choices (for the design review)
 
 - **Flask + React over pywebview**: pywebview's window is tied to the

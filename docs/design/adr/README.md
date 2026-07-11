@@ -77,3 +77,25 @@ in on rather than one this review should decide unilaterally — see
 (PyInstaller `--onefile` vs. `--onedir` packaging, and whether
 per-chunk audio files should be merged into per-chapter files before
 calling v1 done).
+
+## Post-Epic-6 security review fixes (2026-07-10)
+
+A full security + correctness review of the backend, done after Epic 6
+was committed (the last backend epic, ahead of frontend work starting),
+surfaced one gap in an already-accepted decision — folded into the
+existing ADR rather than given a new number, since it refines rather
+than reopens it:
+
+- **ADR-0008** — added an `Origin`-header check on every mutating route.
+  The original "no authentication needed" decision addressed *networked*
+  access from other devices; it didn't separately consider a webpage in
+  *another browser tab on the same machine* being able to trigger a
+  state-changing request without her interaction (a CSRF-style gap,
+  distinct from the multi-device threat the ADR was written against).
+
+The same review found and fixed two path-traversal/arbitrary-file-write
+and CSRF-adjacent bugs in `backend/app.py`'s upload handler, and three
+smaller correctness gaps in `backend/bridge.py`/`pipeline/batch_runner.py`
+— implementation bugs, not design decisions, so they don't have ADRs of
+their own; full detail in `CODEBASE_INDEX.md`'s "Epic 6 post-review
+fixes" session note.
