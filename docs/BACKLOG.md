@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–8 complete. Epic 9+ not started.
+**Status:** Epics 0–8 complete. Epic 8.5 (real-user feedback pass) in progress — visual/whitespace redesign, header/landmark, Male/Female voice labels, stronger selected-state contrast, bigger Listen targets, and back/home navigation done (2026-07-12); auto-load-from-folder, AI-enrichment field merge, input format hints, and the Working-screen progress bar remain. Epic 9+ not started.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -392,6 +392,97 @@ override); `_maybe_enter_voice_pick()` was auto-starting single-book
 generation before the voice picker could ever matter, contradicting
 `assign_voice()`'s own docstring — both regression-tested. Full
 writeup: `CODEBASE_INDEX.md`'s Epic 7+8 session notes.
+
+---
+
+## Epic 8.5 — First real-user feedback pass
+
+Epic 8 was complete as originally scoped; this epic captures what a
+real hands-on run through the GUI surfaced (2026-07-12), before Epic 9's
+own (separately-scoped) manual accessibility passes. Numbered `8.5`
+rather than renumbering Epic 9/10/11, which are referenced by number
+throughout `CLAUDE.md` and `CODEBASE_INDEX.md`.
+
+- [x] **Persistent `<header>` landmark, plain-language app name** (e.g.
+  "📚 Audiobook Maker") on every screen. Two birds: makes it obvious
+  which app/screen she's looking at (her own feedback), and closes a
+  WCAG landmark requirement `03-gui-ux-design.md` §Robust already
+  specifies ("a page `<header>`... so a screen-reader user can jump
+  between sections") that never actually got built — every screen
+  today is a bare `<main>` with a heading, no separate header region.
+- [ ] **Screen 1: auto-load books already in the configured
+  `books_folder`** as a checklist she can select from, *alongside*
+  (not instead of) the existing drag-and-drop/"Choose Books..." for
+  files elsewhere — asking her to drag-and-drop files that are already
+  sitting in the folder she just picked is redundant. Needs: a backend
+  route to list `.epub` files in `books_folder` without uploading them
+  first, a decision on default-checked state, and an update to
+  `03-gui-ux-design.md`'s Screen 1 spec (currently describes
+  drag-and-drop/Choose-Books as the only entry path, list starting
+  empty) so the doc and the code don't quietly diverge.
+- [x] **General spacing/whitespace pass across every screen** — buttons
+  and inputs sit too close together right now (real "oops-click" risk
+  on a laptop/desktop, which has screen space to spare). No design
+  conflict, just execution; treat as a full visual pass, not a
+  one-line tweak.
+- [ ] **Rename stage: AI-enrichment sanity check / per-field merge.**
+  Real bug: a fully-parseable filename ("Sanderson, Brandon — The
+  Stormlight Archive #01 — The Way of Kings.epub") round-tripped
+  through AI enrichment as just `title: "The Way of Kings"`, losing
+  author/series/series-number the filename plainly had. Fix: merge
+  AI's response with what filename-parsing/EPUB-metadata already
+  found, per field — a blank/missing AI field should fall back to the
+  already-available value instead of the whole result being trusted
+  wholesale. Lives in `pipeline/rename_stage.py`.
+- [ ] **Format hint text on Field Correction Popup inputs.** Author
+  gets a "Last Name, First Name" hint; Series Number gets a
+  numeric-format hint. Applies everywhere the popup is used (Confirm
+  metadata, the voice table's title-edit, "No, let me fix it") since
+  it's the same shared component.
+- [x] **Voice picker: Male/Female label per voice.** Reverses
+  `03-gui-ux-design.md`'s current explicit "no gender/accent/
+  quality-grade labels" rule — update that doc's Voice assignment
+  section alongside the code, with a short note on why (real user
+  feedback: helpful for choosing, not just decorative detail).
+- [x] **Voice picker: bigger Listen button.** Never got the same
+  big-click-target (~70px) treatment the rest of the app's controls
+  have — `RadioRow`'s nested action button needs its own sizing, not
+  just inherited row padding.
+- [x] **Clickable-row selected/checked state: stronger, non-color-only
+  contrast.** The current light-blue tint (`.clickable-row--checked`)
+  likely fails the 3:1 UI-component contrast minimum this project
+  already commits to elsewhere; add a checkmark icon alongside a
+  darker background so the selected state isn't color-dependent either.
+- [x] **Back buttons on multi-step flows, Home button from settings
+  sub-views.** Not one of the original 8 feedback items — a separate
+  mid-review ask. `FieldCorrectionPopup` gained an optional `onBack`
+  prop (used by `AiHelperSetup`'s steps and `FixInfoFlow`'s field
+  sequence); `AppHeader`'s Home button appears only when
+  `subView !== null` (Folders/Words/AI Helper/Voice History), never
+  mid-onboarding or mid-batch, since those screens already *are* her
+  true current state.
+- [x] **Remove-this-book generalized past Screen 1, to every screen a
+  book can get stuck on.** Real bug hit live (2026-07-12): a file that
+  passed Screen 1's shallow zip/mimetype check but failed real EPUB
+  parsing later landed the whole batch on `ErrorScreen` with no way to
+  identify or remove the offending book — "Back to Add Books" just
+  re-polled into the same error forever, since `derive_batch_state()`
+  stays `"error"` for as long as any book is in `error` status. Fixed
+  via a shared `RemoveBookButton` (calls the existing
+  `POST /books/<id>/cancel`, which already accepted a book in any
+  status, not just `generating` — no backend change needed) added to
+  `ErrorScreen` (now also names which book is at fault), the
+  identification loop's `ConfirmMetadataScreen`, and both
+  `VoiceAssignmentScreen` modes (single + table). Screen 1's original
+  Remove got the same ✕-icon treatment for visual consistency.
+- [ ] **Working screen: visible chunk-progress readout + a real
+  progress bar.** E.g. "Part 45 of 120" plus a `<progress>`/styled bar
+  — uses `progress.chunks_done`/`chunks_total` the backend already
+  sends every poll (no backend change needed), just never surfaced
+  visibly. Still paired with the existing friendly text + dynamic time
+  estimate, not a replacement for it (`03-gui-ux-design.md`'s "never a
+  bare percentage or spinner alone" still holds — this is a bar *with*
+  context, not instead of it).
 
 ---
 

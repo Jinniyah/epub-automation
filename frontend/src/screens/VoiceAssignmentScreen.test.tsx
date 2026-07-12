@@ -4,11 +4,11 @@ import { axe } from "vitest-axe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as client from "../api/client";
 import { VoiceAssignmentScreen } from "./VoiceAssignmentScreen";
-import type { Book } from "../api/types";
+import type { Book, VoiceChoice } from "../api/types";
 
-const VOICES = [
-  { key: "af_heart", name: "Heart" },
-  { key: "bm_george", name: "George" },
+const VOICES: VoiceChoice[] = [
+  { key: "af_heart", name: "Heart", gender: "Female" },
+  { key: "bm_george", name: "George", gender: "Male" },
 ];
 
 function book(overrides: Partial<Book> = {}): Book {
@@ -33,6 +33,30 @@ describe("VoiceAssignmentScreen", () => {
     vi.restoreAllMocks();
   });
 
+  it("single-book mode offers a way to re-edit metadata before picking a voice", async () => {
+    setUpVoices();
+    const updateSpy = vi
+      .spyOn(client, "updateBookMetadata")
+      .mockResolvedValue({ ok: true, status: "voice_pick" });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <VoiceAssignmentScreen books={[book()]} lastVoice="af_heart" onChanged={onChanged} />,
+    );
+    await screen.findByText("Heart");
+
+    await user.click(
+      screen.getByRole("button", { name: "✏️ Not quite right? Fix Fated's info" }),
+    );
+
+    expect(
+      screen.getByRole("dialog", { name: 'Update "Fated"\'s info' }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateSpy).toHaveBeenCalledWith("b1", {});
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
   it("renders the single full picker for one book, and assigning advances", async () => {
     setUpVoices();
     const assignSpy = vi
@@ -50,6 +74,49 @@ describe("VoiceAssignmentScreen", () => {
 
     expect(assignSpy).toHaveBeenCalledWith("b1", "bm_george");
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("single-book mode offers to remove the book, in case it was added by accident", async () => {
+    setUpVoices();
+    const cancelSpy = vi
+      .spyOn(client, "cancelBook")
+      .mockResolvedValue({ ok: true, status: "cancelled" });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <VoiceAssignmentScreen books={[book()]} lastVoice="af_heart" onChanged={onChanged} />,
+    );
+    await screen.findByText("Heart");
+
+    await user.click(
+      screen.getByRole("button", { name: 'Remove "Fated" from this batch' }),
+    );
+
+    expect(cancelSpy).toHaveBeenCalledWith("b1");
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("table mode offers a per-row Remove alongside Change Voice", async () => {
+    setUpVoices();
+    const cancelSpy = vi
+      .spyOn(client, "cancelBook")
+      .mockResolvedValue({ ok: true, status: "cancelled" });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <VoiceAssignmentScreen
+        books={[book({ id: "b1" }), book({ id: "b2", title: "Cursed", series: undefined })]}
+        onChanged={onChanged}
+      />,
+    );
+    await screen.findAllByText("Heart");
+
+    await user.click(
+      screen.getByRole("button", { name: 'Remove "Fated" from this batch' }),
+    );
+
+    expect(cancelSpy).toHaveBeenCalledWith("b1");
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it("renders a real <table> for more than one book", async () => {
@@ -95,7 +162,7 @@ describe("VoiceAssignmentScreen", () => {
     );
     await screen.findAllByText("Heart");
 
-    await user.click(screen.getByRole("button", { name: /Fated/ }));
+    await user.click(screen.getByRole("button", { name: /^📖 Fated/ }));
 
     expect(
       screen.getByRole("dialog", { name: 'Update "Fated"\'s info' }),

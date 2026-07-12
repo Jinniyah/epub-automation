@@ -135,9 +135,12 @@ export interface MetadataCorrections {
   series_number?: string;
 }
 
+export type VoiceGender = "Male" | "Female";
+
 export interface VoiceChoice {
   key: string;
   name: string;
+  gender: VoiceGender;
 }
 
 export interface VoicesResponse {

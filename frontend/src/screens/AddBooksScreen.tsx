@@ -123,9 +123,9 @@ export function AddBooksScreen({
 
       {rejections.length > 0 ? (
         <LiveRegion politeness="assertive">
-          <ul>
+          <ul className="row-list">
             {rejections.map((r) => (
-              <li key={r.filename}>
+              <li key={r.filename} className="row-list__item">
                 {r.filename}: {r.message}
               </li>
             ))}
@@ -133,21 +133,30 @@ export function AddBooksScreen({
         </LiveRegion>
       ) : null}
 
-      <h2>Your books</h2>
-      {books.length === 0 ? (
-        <p>No books added yet.</p>
-      ) : (
-        <ul>
-          {books.map((book) => (
-            <li key={book.id}>
-              <span aria-hidden="true">✓</span> {book.original_filename}
-              <button type="button" onClick={() => void handleRemove(book.id)}>
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div>
+        <h2>Your books</h2>
+        {books.length === 0 ? (
+          <p className="caption">No books added yet.</p>
+        ) : (
+          <ul className="row-list">
+            {books.map((book) => (
+              <li key={book.id} className="row-list__item">
+                <span className="row-list__label">
+                  <span aria-hidden="true">✓</span> {book.original_filename}
+                </span>
+                <button
+                  type="button"
+                  className="link-button link-button--danger"
+                  aria-label={`Remove "${book.original_filename}"`}
+                  onClick={() => void handleRemove(book.id)}
+                >
+                  ✕ Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {diskSpace?.any_insufficient ? (
         <LiveRegion politeness="assertive">
@@ -156,32 +165,34 @@ export function AddBooksScreen({
         </LiveRegion>
       ) : null}
 
-      <ToggleSwitch
-        label="🏷️ Fix messy file names"
-        checked={fixNames}
-        onChange={(checked) => {
-          void updateSettings({ fix_names: checked }).then(onChanged);
-        }}
-      />
-      <ToggleSwitch
-        label="🧼 Clean up bad language"
-        checked={cleanLanguage}
-        onChange={(checked) => {
-          void updateSettings({ clean_language: checked }).then(onChanged);
-        }}
-      />
+      <div className="stack-sm">
+        <ToggleSwitch
+          label="🏷️ Fix messy file names"
+          checked={fixNames}
+          onChange={(checked) => {
+            void updateSettings({ fix_names: checked }).then(onChanged);
+          }}
+        />
+        <ToggleSwitch
+          label="🧼 Clean up bad language"
+          checked={cleanLanguage}
+          onChange={(checked) => {
+            void updateSettings({ clean_language: checked }).then(onChanged);
+          }}
+        />
+      </div>
 
-      <nav aria-label="More options">
-        <button type="button" onClick={onOpenFolders}>
+      <nav aria-label="More options" className="entry-points">
+        <button type="button" className="link-button" onClick={onOpenFolders}>
           ⚙️ Change my folders
         </button>
-        <button type="button" onClick={onOpenWords}>
+        <button type="button" className="link-button" onClick={onOpenWords}>
           🧼 Words to clean up
         </button>
-        <button type="button" onClick={onOpenAiHelper}>
+        <button type="button" className="link-button" onClick={onOpenAiHelper}>
           🤖 File name helper
         </button>
-        <button type="button" onClick={onOpenVoiceHistory}>
+        <button type="button" className="link-button" onClick={onOpenVoiceHistory}>
           🎙️ What voice did I use before?
         </button>
       </nav>

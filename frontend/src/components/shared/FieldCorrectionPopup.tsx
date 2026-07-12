@@ -13,6 +13,13 @@ export interface FieldCorrectionPopupProps {
    * same behavior, just a different label for what committing this
    * field actually does next. */
   saveLabel?: string;
+  /** Step back to the previous field in a multi-step flow (the
+   * identification loop's field-by-field review, "No, let me fix it"),
+   * discarding whatever's typed here without saving it. Distinct from
+   * `onClose` (Escape/backdrop), which exits the whole flow rather than
+   * just stepping back one field -- omitted entirely on the first field
+   * of a flow, or when this popup isn't part of a step sequence at all. */
+  onBack?: () => void;
 }
 
 /** One component, reused identically by the pre-generation "Confirm
@@ -28,6 +35,7 @@ export function FieldCorrectionPopup({
   onSave,
   onClose,
   saveLabel = "Save",
+  onBack,
 }: FieldCorrectionPopupProps) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +63,11 @@ export function FieldCorrectionPopup({
           onChange={(event) => setValue(event.target.value)}
         />
       </div>
+      {onBack ? (
+        <button type="button" className="link-button" onClick={onBack}>
+          ← Back
+        </button>
+      ) : null}
       <div className="overlay-actions">
         <BigButton variant="plain" onClick={() => setValue("")}>
           ✕ Clear

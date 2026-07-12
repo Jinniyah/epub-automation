@@ -54,13 +54,22 @@ export function RadioRow({
         checked={checked}
         onChange={() => onSelect(value)}
       />
-      <span>
+      {/* A real checkmark, not just a color/tint change -- the selected
+       * state must never depend on color discrimination alone
+       * (03-gui-ux-design.md §Perceivable). Decorative: the native
+       * radio's own checked state already carries this for a screen
+       * reader. */}
+      <span className="clickable-row__check" aria-hidden="true">
+        {checked ? "✓" : ""}
+      </span>
+      <span className="clickable-row__label">
         {label}
         {badge ? <span className="caption"> — {badge}</span> : null}
       </span>
       {action ? (
         <button
           type="button"
+          className="clickable-row__action"
           aria-label={action.label}
           onClick={(event) => {
             // A nested interactive control inside a <label> must not

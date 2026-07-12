@@ -59,9 +59,9 @@ export function WelcomeBack({
       <h1 id="welcome-back-heading">📚 Welcome back!</h1>
       <p>You were in the middle of:</p>
       {known.length > 0 ? (
-        <ul>
+        <ul className="row-list">
           {known.map((book) => (
-            <li key={book.id}>
+            <li key={book.id} className="row-list__item">
               📖 {book.title ?? book.original_filename} — {phraseFor(book.status)}
             </li>
           ))}
@@ -72,12 +72,14 @@ export function WelcomeBack({
           hadn't finished yet
         </p>
       )}
-      <BigButton variant="primary" onClick={onContinue}>
-        Continue
-      </BigButton>
-      <BigButton variant="plain" onClick={onNotNow}>
-        Not right now
-      </BigButton>
+      <div className="button-row">
+        <BigButton variant="primary" onClick={onContinue}>
+          Continue
+        </BigButton>
+        <BigButton variant="plain" onClick={onNotNow}>
+          Not right now
+        </BigButton>
+      </div>
     </main>
   );
 }

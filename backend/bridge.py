@@ -251,16 +251,24 @@ def build_status_response(runner: SnapshotSource) -> dict[str, Any]:
 
 
 def voice_choices() -> list[dict[str, str]]:
-    """Plain first-name-only voice list for the picker -- "Plain first
-    names only, no technical voice keys, no gender/accent/quality-grade
-    labels" (03-gui-ux-design.md §Voice assignment). `tts_engine.VOICES`'s
-    display strings carry that detail for internal/CLI use
-    (e.g. "Heart (Female, en-us)"); this strips it down to what she
-    actually sees.
+    """Plain first-name (+ gender) voice list for the picker.
+    `tts_engine.VOICES`'s display strings carry more internal/CLI-only
+    detail than she needs (e.g. "Heart (Female, en-us)"); this keeps the
+    name and gender, drops the accent/locale code and the technical
+    voice key.
+
+    **Epic 8.5 revision:** 03-gui-ux-design.md originally said "no
+    gender/accent/quality-grade labels" at all -- real user feedback
+    said knowing Male/Female genuinely helps with choosing a voice, not
+    just decorative detail, so that doc was updated to allow gender
+    specifically while still keeping accent/locale/quality-grade out.
     """
-    return [
-        {"key": key, "name": label.split(" (", 1)[0]} for key, label in VOICES.items()
-    ]
+    choices = []
+    for key, label in VOICES.items():
+        name, _, detail = label.partition(" (")
+        gender = detail.split(",", 1)[0].strip()
+        choices.append({"key": key, "name": name, "gender": gender})
+    return choices
 
 
 # ---------------------------------------------------------------------------

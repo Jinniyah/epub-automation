@@ -692,7 +692,7 @@ def test_voices_route_returns_plain_first_names(client: FlaskClient) -> None:
     resp = client.get("/api/voices")
 
     body = resp.get_json()
-    assert {"key": "af_heart", "name": "Heart"} in body["voices"]
+    assert {"key": "af_heart", "name": "Heart", "gender": "Female"} in body["voices"]
     assert all("(" not in v["name"] for v in body["voices"])
 
 

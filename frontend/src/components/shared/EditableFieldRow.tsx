@@ -12,7 +12,7 @@ export interface EditableFieldRowProps {
 export function EditableFieldRow({ label, value, onEdit }: EditableFieldRowProps) {
   return (
     <button type="button" className="clickable-row" onClick={onEdit}>
-      <span>
+      <span className="clickable-row__label">
         <strong>{label}:</strong> {value || <span className="caption">Not set</span>}
       </span>
       <span aria-hidden="true">✏️</span>

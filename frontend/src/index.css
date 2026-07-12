@@ -3,33 +3,64 @@
  * (body text >= 4.5:1, large text/UI components >= 3:1) against the
  * backgrounds it's actually used on -- see docs/requirements/
  * 03-gui-ux-design.md §Accessibility: WCAG 2.1 AA alignment §Perceivable.
+ * Verified by hand against the WCAG relative-luminance formula, not
+ * just eyeballed -- see PR/session notes for the actual numbers.
  */
 :root {
+  --color-page-bg: #eef0f4;
   --color-bg: #ffffff;
-  --color-surface: #f4f5f7;
-  --color-text: #1a1a1a;
-  --color-text-muted: #4a4a4a;
+  --color-surface: #f6f7f9;
+  --color-surface-hover: #ebedf1;
   --color-border: #6b6b6b;
+  --color-border-soft: #e1e3e9;
+  --color-text: #16171b;
+  --color-text-muted: #585c65;
 
-  --color-primary: #0b4fd6;
+  --color-primary: #4338ca;
   --color-primary-text: #ffffff;
-  --color-primary-hover: #083ea8;
+  --color-primary-hover: #372da3;
+  --color-primary-soft: #eef0fd;
+  --color-primary-soft-strong: #dbe0fa;
 
-  --color-amber: #8a5a00;
+  --color-amber: #92400e;
   --color-amber-text: #ffffff;
-  --color-amber-hover: #6e4700;
+  --color-amber-hover: #78330b;
 
-  --color-danger: #b3261e;
+  --color-danger: #b91c1c;
   --color-danger-text: #ffffff;
-  --color-danger-hover: #8f1e18;
+  --color-danger-hover: #991616;
 
-  --color-success: #1a6b3c;
+  --color-success: #15803d;
 
   --focus-ring-inner: #ffffff;
   --focus-ring-outer: #1a1a2e;
 
   --font-sans:
     "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Spacing scale -- used everywhere instead of ad hoc margin/padding
+   * values, so vertical rhythm stays consistent screen to screen. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 56px;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 999px;
+
+  --shadow-xs: 0 1px 2px rgba(23, 24, 28, 0.05);
+  --shadow-sm:
+    0 2px 6px rgba(23, 24, 28, 0.07), 0 1px 2px rgba(23, 24, 28, 0.05);
+  --shadow-md:
+    0 12px 28px rgba(23, 24, 28, 0.1), 0 2px 6px rgba(23, 24, 28, 0.06);
+  --shadow-lg:
+    0 24px 48px rgba(23, 24, 28, 0.18), 0 6px 16px rgba(23, 24, 28, 0.08);
 }
 
 * {
@@ -51,7 +82,7 @@ body {
   line-height: 1.6;
   letter-spacing: 0.01em;
   color: var(--color-text);
-  background: var(--color-bg);
+  background: var(--color-page-bg);
   text-align: left;
 }
 
@@ -66,6 +97,20 @@ h1,
 h2,
 h3 {
   line-height: 1.3;
+  font-weight: 700;
+  margin: 0;
+}
+
+h1 {
+  font-size: 1.65rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+}
+
+p {
+  margin: 0;
 }
 
 /* A visible focus indicator on every focusable element, always -- never
@@ -84,21 +129,120 @@ button {
   font-family: inherit;
 }
 
+/* ---------------------------------------------------------------------
+ * Page shell -- a persistent <header> landmark (app identity + a
+ * conditional Home link) above each screen's <main>, which itself reads
+ * as a soft, elevated card floating on a muted page background rather
+ * than a flat, edge-to-edge form.
+ * ------------------------------------------------------------------- */
+
+.app-header {
+  max-width: 720px;
+  margin: var(--space-5) auto 0;
+  padding: 0 var(--space-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.app-header__brand {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--color-text);
+}
+
+main {
+  max-width: 720px;
+  margin: var(--space-3) auto var(--space-6);
+  padding: var(--space-7) var(--space-6) var(--space-6);
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 620px) {
+  .app-header {
+    margin-top: var(--space-3);
+    padding: 0 var(--space-4);
+  }
+
+  main {
+    margin: var(--space-2) 0 0;
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100%;
+    padding: var(--space-5) var(--space-4) var(--space-6);
+  }
+}
+
+/* Consistent vertical rhythm for every screen's top-level sections,
+ * without needing a margin utility class hand-applied per element --
+ * addresses the "buttons and inputs sit too close together" feedback
+ * app-wide in one place. */
+main > * + * {
+  margin-top: var(--space-5);
+}
+
+/* A tighter rhythm for closely-related items within one section (a
+ * list of field rows, a run of list items) -- distinguishes "these
+ * belong together" from "these are separate sections" purely by
+ * spacing, without extra visual dividers. */
+.stack-sm > * + * {
+  margin-top: var(--space-2);
+}
+
+/* A row of two-or-more alternative actions (Yes/No, Pause/Cancel,
+ * Continue/Not right now) -- sits side by side with a modest gap on
+ * wide screens, wraps to stacked on narrow ones. Each button still
+ * meets the ~70px big-button minimum regardless of row/column layout. */
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.button-row > .big-button-wrap {
+  flex: 1 1 200px;
+}
+.button-row > .big-button-wrap > .big-button {
+  width: 100%;
+}
+
+/* ---------------------------------------------------------------------
+ * Buttons
+ * ------------------------------------------------------------------- */
+
 /* Big click targets: buttons at minimum ~70px tall with generous
  * spacing (03-gui-ux-design.md §General principles). */
 .big-button {
   min-height: 70px;
-  padding: 12px 24px;
-  font-size: 1.1rem;
+  padding: 14px 28px;
+  font-size: 1.08rem;
   font-weight: 600;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 2px solid transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5em;
+  gap: 0.6em;
   text-align: center;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.big-button:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.big-button:active {
+  transform: translateY(1px);
 }
 
 .big-button--primary {
@@ -128,54 +272,160 @@ button {
 .big-button--plain {
   background: var(--color-surface);
   color: var(--color-text);
-  border-color: var(--color-border);
+  border-color: var(--color-border-soft);
 }
 .big-button--plain:hover {
-  background: #e6e8ec;
+  background: var(--color-surface-hover);
 }
 
 .big-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
-/* The fully-clickable row pattern: the entire row is the hit target and
- * a real focusable control (03-gui-ux-design.md §General principles /
- * §Operable), not just the decorative circle/icon inside it. */
+.big-button-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------------
+ * The fully-clickable row pattern (radio rows, toggles): the entire
+ * row is the hit target and a real focusable control
+ * (03-gui-ux-design.md §General principles / §Operable), not just the
+ * decorative circle/icon inside it.
+ * ------------------------------------------------------------------- */
+
 .clickable-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-3);
   width: 100%;
   min-height: 70px;
-  padding: 12px 16px;
-  border: 2px solid var(--color-border);
-  border-radius: 12px;
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
   background: var(--color-bg);
   text-align: left;
   cursor: pointer;
   font-size: 1rem;
   font-family: inherit;
   color: var(--color-text);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 .clickable-row:hover {
   background: var(--color-surface);
 }
+
+/* Selected/checked state: a real, visible checkmark alongside a
+ * saturated (not pastel) tint and a thicker colored border, so the
+ * "this one is selected" signal never depends on color discrimination
+ * alone -- a pale blue tint by itself was flagged as too subtle for a
+ * user with low vision to register at a glance. */
 .clickable-row--checked,
 .clickable-row[aria-current="true"] {
   border-color: var(--color-primary);
-  background: #eaf1ff;
+  border-width: 3px;
+  padding: calc(var(--space-3) - 1px) calc(var(--space-4) - 1px);
+  background: var(--color-primary-soft-strong);
+  font-weight: 600;
 }
 
-/* The row's own radio input is visually hidden (.sr-only) so the whole
- * label is the decorative "circle" -- its focus still needs to show on
- * the row, not on an invisible 1px element (03-gui-ux-design.md
- * §Operable: "a visible focus indicator on every focusable element,
- * always"). */
+.clickable-row__check {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  background: transparent;
+  border: 2px solid var(--color-border);
+  font-size: 0.95rem;
+  line-height: 1;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.clickable-row--checked .clickable-row__check {
+  color: var(--color-primary-text);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.clickable-row__label {
+  flex: 1 1 auto;
+}
+
+/* The row's own radio/checkbox input is visually hidden (.sr-only) so
+ * the whole label is the decorative "circle" -- its focus still needs
+ * to show on the row, not on an invisible 1px element
+ * (03-gui-ux-design.md §Operable: "a visible focus indicator on every
+ * focusable element, always"). */
 .clickable-row:has(:focus-visible) {
   box-shadow:
     0 0 0 3px var(--focus-ring-inner),
     0 0 0 6px var(--focus-ring-outer);
+}
+
+/* A distinct nested action within a row (the voice picker's "Listen"
+ * button) -- its own real big-ish click target, not a bare icon-sized
+ * hit area, per feedback that it was too small to reliably tap. */
+.clickable-row__action {
+  flex: none;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-border-soft);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.clickable-row__action:hover {
+  background: var(--color-surface-hover);
+}
+
+/* ---------------------------------------------------------------------
+ * Toggle switch (Screen 1's "Fix messy file names" / "Clean up bad
+ * language") -- a real visual pill switch, not just On/Off text, on
+ * top of the same fully-clickable-row semantics above.
+ * ------------------------------------------------------------------- */
+
+.toggle-visual {
+  flex: none;
+  width: 52px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-soft);
+  position: relative;
+  transition: background-color 150ms ease;
+}
+.toggle-visual::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-xs);
+  transition: transform 150ms ease;
+}
+.clickable-row--checked .toggle-visual {
+  background: var(--color-primary);
+}
+.clickable-row--checked .toggle-visual::after {
+  transform: translateX(22px);
 }
 
 /* Visually hidden but still announced by a screen reader -- the text
@@ -193,17 +443,31 @@ button {
   border: 0;
 }
 
-main {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+/* ---------------------------------------------------------------------
+ * Cards -- visually groups a related section (a book list, a settings
+ * block) inside a screen, instead of every element flowing together
+ * in one undifferentiated column.
+ * ------------------------------------------------------------------- */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
 }
+
+.card > h2:first-child {
+  margin-bottom: var(--space-3);
+}
+
+/* ---------------------------------------------------------------------
+ * Forms
+ * ------------------------------------------------------------------- */
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 1.25rem;
+  gap: var(--space-2);
 }
 
 .field label {
@@ -214,9 +478,32 @@ main {
 .field input[type="password"] {
   font-family: inherit;
   font-size: 1.1rem;
-  padding: 0.75rem;
+  padding: var(--space-3);
   border: 2px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  transition: border-color 150ms ease;
+}
+.field input[type="text"]:focus-visible,
+.field input[type="password"]:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.field-hint {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+/* A text field paired with its own action button (e.g. "Add a new
+ * word" + Add) -- side by side on wide screens, since they're one
+ * cohesive action, not two separate sections. */
+.inline-form {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.inline-form .field {
+  flex: 1 1 220px;
 }
 
 .caption {
@@ -224,38 +511,165 @@ main {
   font-size: 0.95rem;
 }
 
+/* ---------------------------------------------------------------------
+ * Overlays
+ * ------------------------------------------------------------------- */
+
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(20, 21, 26, 0.55);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: var(--space-5);
   z-index: 100;
 }
 
 .overlay {
   background: var(--color-bg);
-  border-radius: 16px;
-  padding: 2rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   width: 100%;
   max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: var(--shadow-lg);
 }
 
-.dropzone {
-  border: 3px dashed var(--color-border);
-  border-radius: 16px;
-  padding: 2rem;
-  text-align: center;
-  margin-bottom: 1.5rem;
+.overlay > * + * {
+  margin-top: var(--space-4);
 }
 
 .overlay-actions {
   display: flex;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------
+ * Screen 1's dropzone
+ * ------------------------------------------------------------------- */
+
+.dropzone {
+  border: 3px dashed var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+  background: var(--color-surface);
+}
+.dropzone > * + * {
+  margin-top: var(--space-4);
+}
+
+/* ---------------------------------------------------------------------
+ * Plain rows (book list, word list) -- the same card-like row language
+ * as .clickable-row, for rows that aren't a radio/checkbox choice but
+ * still benefit from the same visual rhythm and big click targets.
+ * ------------------------------------------------------------------- */
+
+.row-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 60px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.row-list__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------
+ * Plain (non-big-button) links/buttons -- entry points, "See the
+ * audiobook files", etc. Still a real, keyboard-focusable, decently
+ * sized target, just visually lighter-weight than a primary action.
+ * ------------------------------------------------------------------- */
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.link-button:hover {
+  background: var(--color-surface-hover);
+}
+
+.link-button--danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.link-button--danger:hover {
+  background: var(--color-danger);
+  color: var(--color-danger-text);
+}
+
+.entry-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------------------------------------------------------------------
+ * Table (multi-book voice assignment)
+ * ------------------------------------------------------------------- */
+
+.table-wrap {
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-bg);
+}
+
+th,
+td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+thead th {
+  background: var(--color-surface);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }

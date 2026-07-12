@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
 import { Overlay } from "../components/shared/Overlay";
+import { RemoveBookButton } from "../components/shared/RemoveBookButton";
 import { VoicePicker } from "../components/shared/VoicePicker";
 import { assignVoice, getVoices, startGeneration } from "../api/client";
 import type { Book, VoiceChoice } from "../api/types";
@@ -41,6 +42,26 @@ export function VoiceAssignmentScreen({
     onChanged();
   }
 
+  const changingRow = rows.find((r) => r.bookId === changingVoiceFor);
+  const editingRow = rows.find((r) => r.bookId === editingMetadataFor);
+
+  const editMetadataOverlay = editingRow ? (
+    <Overlay
+      titleId="edit-metadata-heading"
+      title={`Update "${editingRow.title}"'s info`}
+      onClose={() => setEditingMetadataFor(null)}
+    >
+      <ConfirmMetadataScreen
+        asOverlay
+        book={books.find((b) => b.id === editingRow.bookId)!}
+        onConfirmed={() => {
+          setEditingMetadataFor(null);
+          onChanged();
+        }}
+      />
+    </Overlay>
+  ) : null;
+
   if (mode === "single") {
     const row = rows[0];
     const label = row.series ? `"${row.title}" (${row.series})` : `"${row.title}"`;
@@ -49,6 +70,13 @@ export function VoiceAssignmentScreen({
         <h1 id="voice-single-heading" className="sr-only">
           Pick a voice
         </h1>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => setEditingMetadataFor(row.bookId)}
+        >
+          ✏️ Not quite right? Fix {row.title}'s info
+        </button>
         <VoicePicker
           bookLabel={label}
           initialVoice={row.voice}
@@ -56,45 +84,61 @@ export function VoiceAssignmentScreen({
           voices={voices}
           onNext={(voice) => void handleAssign(row.bookId, voice)}
         />
+        <RemoveBookButton bookId={row.bookId} bookLabel={row.title} onRemoved={onChanged} />
+        {editMetadataOverlay}
       </main>
     );
   }
 
-  const changingRow = rows.find((r) => r.bookId === changingVoiceFor);
-  const editingRow = rows.find((r) => r.bookId === editingMetadataFor);
-
   return (
     <main aria-labelledby="voice-table-heading">
       <h1 id="voice-table-heading">🎙️ Choose a voice for each book</h1>
-      <table>
-        <caption className="sr-only">Voice for each book in this batch</caption>
-        <thead>
-          <tr>
-            <th scope="col">Book</th>
-            <th scope="col">Voice</th>
-            <th scope="col">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.bookId}>
-              <td>
-                <button type="button" onClick={() => setEditingMetadataFor(row.bookId)}>
-                  📖 {row.title}
-                  {row.author ? ` — ${row.author}` : ""}
-                  {row.series ? ` — ${row.series}` : ""}
-                </button>
-              </td>
-              <td>{voiceDisplayName(voices, row.voice)}</td>
-              <td>
-                <button type="button" onClick={() => setChangingVoiceFor(row.bookId)}>
-                  Change Voice
-                </button>
-              </td>
+      <div className="table-wrap">
+        <table>
+          <caption className="sr-only">Voice for each book in this batch</caption>
+          <thead>
+            <tr>
+              <th scope="col">Book</th>
+              <th scope="col">Voice</th>
+              <th scope="col">Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.bookId}>
+                <td>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setEditingMetadataFor(row.bookId)}
+                  >
+                    📖 {row.title}
+                    {row.author ? ` — ${row.author}` : ""}
+                    {row.series ? ` — ${row.series}` : ""}
+                  </button>
+                </td>
+                <td>{voiceDisplayName(voices, row.voice)}</td>
+                <td>
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => setChangingVoiceFor(row.bookId)}
+                    >
+                      Change Voice
+                    </button>
+                    <RemoveBookButton
+                      bookId={row.bookId}
+                      bookLabel={row.title}
+                      onRemoved={onChanged}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <BigButton
         variant="primary"
@@ -126,22 +170,7 @@ export function VoiceAssignmentScreen({
         </Overlay>
       ) : null}
 
-      {editingRow ? (
-        <Overlay
-          titleId="edit-metadata-heading"
-          title={`Update "${editingRow.title}"'s info`}
-          onClose={() => setEditingMetadataFor(null)}
-        >
-          <ConfirmMetadataScreen
-            asOverlay
-            book={books.find((b) => b.id === editingRow.bookId)!}
-            onConfirmed={() => {
-              setEditingMetadataFor(null);
-              onChanged();
-            }}
-          />
-        </Overlay>
-      ) : null}
+      {editMetadataOverlay}
     </main>
   );
 }

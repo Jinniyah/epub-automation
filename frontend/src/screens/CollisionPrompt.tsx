@@ -22,12 +22,14 @@ export function CollisionPrompt({ bookTitle, artifact, onChoice }: CollisionProm
         You already have a {label} called "{bookTitle}"
       </h1>
       <p>Want to replace it or keep both?</p>
-      <BigButton variant="primary" onClick={() => onChoice("keep_both")}>
-        Keep both
-      </BigButton>
-      <BigButton variant="plain" onClick={() => onChoice("replace")}>
-        Replace it
-      </BigButton>
+      <div className="button-row">
+        <BigButton variant="primary" onClick={() => onChoice("keep_both")}>
+          Keep both
+        </BigButton>
+        <BigButton variant="plain" onClick={() => onChoice("replace")}>
+          Replace it
+        </BigButton>
+      </div>
     </main>
   );
 }

@@ -50,7 +50,7 @@ export function FoldersScreen({ booksFolder, outputFolder, onDone }: FoldersScre
   return (
     <main aria-labelledby="folders-heading">
       <h1 id="folders-heading">Your folders</h1>
-      <div className="field">
+      <div className="card stack-sm">
         <p>Where are your book files?</p>
         <BigButton
           variant="plain"
@@ -61,7 +61,7 @@ export function FoldersScreen({ booksFolder, outputFolder, onDone }: FoldersScre
         </BigButton>
         {books ? <p className="caption">Currently: {books}</p> : null}
       </div>
-      <div className="field">
+      <div className="card stack-sm">
         <p>Where should your finished books go?</p>
         <BigButton
           variant="plain"

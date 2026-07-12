@@ -31,15 +31,17 @@ function CancelConfirmDialog({
       onClose={onClose}
     >
       <p>The audiobook won't be finished.</p>
-      <BigButton variant="danger" onClick={() => onChoose(true)}>
-        Stop, but keep what's done so far
-      </BigButton>
-      <BigButton variant="plain" onClick={() => onChoose(false)}>
-        Stop and discard everything
-      </BigButton>
-      <BigButton variant="plain" onClick={onClose}>
+      <div className="button-row">
+        <BigButton variant="danger" onClick={() => onChoose(true)}>
+          Stop, but keep what's done so far
+        </BigButton>
+        <BigButton variant="plain" onClick={() => onChoose(false)}>
+          Stop and discard everything
+        </BigButton>
+      </div>
+      <button type="button" className="link-button" onClick={onClose}>
         Never mind
-      </BigButton>
+      </button>
     </Overlay>
   );
 }
@@ -79,26 +81,32 @@ export function WorkingScreen({
 
   return (
     <main aria-labelledby="working-heading">
-      <h1 id="working-heading">Working on: {view.bookTitle}</h1>
-      <p>{view.bookIndexLabel}</p>
+      <div className="stack-sm">
+        <h1 id="working-heading">Working on: {view.bookTitle}</h1>
+        <p className="caption">{view.bookIndexLabel}</p>
+      </div>
 
-      <LiveRegion politeness="polite">🔊 {announced}</LiveRegion>
-      <p>It's okay to leave this open and come back later.</p>
+      <div className="stack-sm">
+        <LiveRegion politeness="polite">🔊 {announced}</LiveRegion>
+        <p className="caption">It's okay to leave this open and come back later.</p>
+      </div>
 
-      <BigButton
-        variant="amber"
-        caption="Stop for now, come back anytime."
-        onClick={() => void handlePause()}
-      >
-        Pause
-      </BigButton>
-      <BigButton
-        variant="danger"
-        caption="Stop working on this book completely."
-        onClick={() => setConfirmingCancel(true)}
-      >
-        Cancel
-      </BigButton>
+      <div className="button-row">
+        <BigButton
+          variant="amber"
+          caption="Stop for now, come back anytime."
+          onClick={() => void handlePause()}
+        >
+          Pause
+        </BigButton>
+        <BigButton
+          variant="danger"
+          caption="Stop working on this book completely."
+          onClick={() => setConfirmingCancel(true)}
+        >
+          Cancel
+        </BigButton>
+      </div>
 
       <BigButton variant="plain" onClick={onQuit}>
         Quit for now

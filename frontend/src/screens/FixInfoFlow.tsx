@@ -86,7 +86,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
     return (
       <main aria-labelledby="fixed-heading">
         <h1 id="fixed-heading">✅ Fixed!</h1>
-        <button type="button" onClick={() => void openFolder()}>
+        <button type="button" className="link-button" onClick={() => void openFolder()}>
           📂 See the audiobook files
         </button>
         {folderError ? <p role="alert">{folderError}</p> : null}
@@ -107,6 +107,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
         saveLabel="Next"
         onClose={onCancel}
         onSave={handleSave}
+        onBack={stepIndex > 0 ? () => setStepIndex(stepIndex - 1) : undefined}
       />
     </main>
   );

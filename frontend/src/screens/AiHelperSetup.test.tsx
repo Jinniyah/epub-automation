@@ -41,6 +41,27 @@ describe("AiHelperSetup", () => {
     ).toBeInTheDocument();
   });
 
+  it("Back steps from choice to intro, and from key back to choice", async () => {
+    const user = userEvent.setup();
+    render(<AiHelperSetup onDone={() => {}} />);
+
+    await user.click(screen.getByRole("button", { name: "Yes, help me" }));
+    expect(screen.getByRole("heading", { name: "Pick a helper" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      screen.getByRole("heading", { name: /Paste your code from Google/ }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(screen.getByRole("heading", { name: "Pick a helper" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(
+      screen.getByRole("heading", { name: "Want help fixing messy file names automatically?" }),
+    ).toBeInTheDocument();
+  });
+
   it("key entry Skip for now also routes to NullProvider", async () => {
     const user = userEvent.setup();
     const updateSpy = vi

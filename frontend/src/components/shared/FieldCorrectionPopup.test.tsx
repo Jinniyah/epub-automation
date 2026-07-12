@@ -95,6 +95,40 @@ describe("FieldCorrectionPopup", () => {
     expect(screen.getByLabelText("Author")).toHaveFocus();
   });
 
+  it("has no Back button when onBack isn't provided", () => {
+    render(
+      <FieldCorrectionPopup
+        fieldLabel="Title"
+        initialValue="Fated"
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "← Back" })).not.toBeInTheDocument();
+  });
+
+  it("Back steps to the previous field without saving this one", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onBack = vi.fn();
+    render(
+      <FieldCorrectionPopup
+        fieldLabel="Title"
+        initialValue="Fated"
+        onSave={onSave}
+        onClose={() => {}}
+        onBack={onBack}
+      />,
+    );
+
+    await user.keyboard("Something typed but not saved");
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("has no axe violations", async () => {
     const { container } = render(
       <FieldCorrectionPopup

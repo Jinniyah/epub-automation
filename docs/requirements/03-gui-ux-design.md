@@ -506,8 +506,15 @@ she wants.
 
            [ Next ]
 ```
-- Plain first names only, no technical voice keys, no gender/accent/
-  quality-grade labels — just the name and a Listen button.
+- Plain first names, each with a **Male/Female label**, no technical
+  voice keys and no accent/quality-grade labels — just the name,
+  gender, and a Listen button. **Revised post-Epic-8 (real user
+  feedback, 2026-07-12):** this originally excluded gender too ("no
+  gender/accent/quality-grade labels"); real use showed knowing
+  Male/Female genuinely helps with choosing a voice, not just
+  decorative detail, so that part of the rule was dropped while
+  keeping accent/locale/quality-grade out. `backend/bridge.py::
+  voice_choices()` returns `gender` alongside `name`/`key`.
 - Radio-button rows (not a dropdown) — dropdowns require more precise
   interaction than a plain list of big rows. **The entire row is the
   click target** (see General principles above) — tapping anywhere on a

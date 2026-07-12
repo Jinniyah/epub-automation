@@ -4,10 +4,11 @@ import { axe } from "vitest-axe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as client from "../../api/client";
 import { VoicePicker } from "./VoicePicker";
+import type { VoiceChoice } from "../../api/types";
 
-const VOICES = [
-  { key: "af_heart", name: "Heart" },
-  { key: "bm_george", name: "George" },
+const VOICES: VoiceChoice[] = [
+  { key: "af_heart", name: "Heart", gender: "Female" },
+  { key: "bm_george", name: "George", gender: "Male" },
 ];
 
 describe("VoicePicker", () => {

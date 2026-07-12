@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
 import { EditableFieldRow } from "../components/shared/EditableFieldRow";
 import { FieldCorrectionPopup } from "../components/shared/FieldCorrectionPopup";
+import { RemoveBookButton } from "../components/shared/RemoveBookButton";
 import { confirmMetadata, updateBookMetadata } from "../api/client";
 import type { Book, MetadataCorrections } from "../api/types";
 import { formatAuthor, parseAuthor } from "../utils/authorName";
@@ -15,6 +16,13 @@ export interface ConfirmMetadataScreenProps {
    * heading copy. */
   enrichmentFailed?: boolean;
   onConfirmed: () => void;
+  /** Only offered outside `asOverlay` mode -- a book reopened from the
+   * voice table is already past this step for the rest of the batch;
+   * removing it there belongs to the table's own row action instead.
+   * Not one of the original 8 feedback items -- surfaced when a real
+   * run hit a book stuck here with no way out but to fill in fake data
+   * (docs/BACKLOG.md Epic 8.5). */
+  onRemoved?: () => void;
   /** Renders as plain content (no <main>/<h1>) for reuse inside an
    * `Overlay` -- the multi-book voice table's clickable book title
    * reopens this same review without leaving that screen
@@ -34,6 +42,7 @@ export function ConfirmMetadataScreen({
   book,
   enrichmentFailed = false,
   onConfirmed,
+  onRemoved,
   asOverlay = false,
 }: ConfirmMetadataScreenProps) {
   const [title, setTitle] = useState(book.title ?? "");
@@ -92,26 +101,36 @@ export function ConfirmMetadataScreen({
   return (
     <Wrapper aria-labelledby={asOverlay ? undefined : "confirm-heading"}>
       {asOverlay ? null : <h1 id="confirm-heading">{heading}</h1>}
-      <EditableFieldRow label="Title" value={title} onEdit={() => setEditing("title")} />
-      <EditableFieldRow
-        label="Author"
-        value={formatAuthor(authorFirst, authorLast)}
-        onEdit={() => setEditing("author")}
-      />
-      <EditableFieldRow
-        label="Series"
-        value={series}
-        onEdit={() => setEditing("series")}
-      />
-      <EditableFieldRow
-        label="Series Number"
-        value={seriesNumber}
-        onEdit={() => setEditing("series_number")}
-      />
+      <div className="stack-sm">
+        <EditableFieldRow label="Title" value={title} onEdit={() => setEditing("title")} />
+        <EditableFieldRow
+          label="Author"
+          value={formatAuthor(authorFirst, authorLast)}
+          onEdit={() => setEditing("author")}
+        />
+        <EditableFieldRow
+          label="Series"
+          value={series}
+          onEdit={() => setEditing("series")}
+        />
+        <EditableFieldRow
+          label="Series Number"
+          value={seriesNumber}
+          onEdit={() => setEditing("series_number")}
+        />
+      </div>
 
       <BigButton variant="primary" disabled={saving} onClick={() => void handleConfirm()}>
         {asOverlay ? "Save" : "Looks good"}
       </BigButton>
+
+      {!asOverlay && onRemoved ? (
+        <RemoveBookButton
+          bookId={book.id}
+          bookLabel={title || book.original_filename}
+          onRemoved={onRemoved}
+        />
+      ) : null}
 
       {editing === "title" ? (
         <FieldCorrectionPopup

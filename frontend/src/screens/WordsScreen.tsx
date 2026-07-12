@@ -35,33 +35,43 @@ export function WordsScreen({ words: initialWords, onDone }: WordsScreenProps) {
   return (
     <main aria-labelledby="words-heading">
       <h1 id="words-heading">Words to clean up</h1>
-      <ul>
-        {words.map((word) => (
-          <li key={word}>
-            {word}
-            <button type="button" onClick={() => void handleRemove(word)}>
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
+      {words.length === 0 ? (
+        <p className="caption">No words added yet.</p>
+      ) : (
+        <ul className="row-list">
+          {words.map((word) => (
+            <li key={word} className="row-list__item">
+              <span className="row-list__label">{word}</span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => void handleRemove(word)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
-      <div className="field">
-        <label htmlFor="new-word">Add a new word</label>
-        <input
-          id="new-word"
-          type="text"
-          value={newWord}
-          onChange={(event) => setNewWord(event.target.value)}
-        />
+      <div className="inline-form">
+        <div className="field">
+          <label htmlFor="new-word">Add a new word</label>
+          <input
+            id="new-word"
+            type="text"
+            value={newWord}
+            onChange={(event) => setNewWord(event.target.value)}
+          />
+        </div>
+        <BigButton
+          variant="plain"
+          disabled={newWord.trim() === ""}
+          onClick={() => void handleAdd()}
+        >
+          Add
+        </BigButton>
       </div>
-      <BigButton
-        variant="plain"
-        disabled={newWord.trim() === ""}
-        onClick={() => void handleAdd()}
-      >
-        Add
-      </BigButton>
 
       <BigButton variant="primary" onClick={onDone}>
         Done

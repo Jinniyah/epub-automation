@@ -39,6 +39,23 @@ describe("FixInfoFlow", () => {
     expect(screen.getByText("Series Number")).toBeInTheDocument();
   });
 
+  it("has no Back on the first field, and Back returns to the previous field with its value kept", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(client, "retagBook").mockResolvedValue({ ok: true, status: "complete" });
+    render(<FixInfoFlow book={book()} onDone={() => {}} onCancel={() => {}} />);
+
+    expect(screen.queryByRole("button", { name: "← Back" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Author -> Title
+    expect(screen.getByLabelText("Title")).toHaveValue("Fated");
+    await user.keyboard("Cursed");
+
+    await user.click(screen.getByRole("button", { name: "← Back" })); // Title -> Author
+
+    expect(screen.getByText("Author")).toBeInTheDocument();
+    expect(screen.getByLabelText("Author")).toHaveValue("Jacka, Benedict");
+  });
+
   it("skips the Series steps for a standalone book", async () => {
     const user = userEvent.setup();
     vi.spyOn(client, "retagBook").mockResolvedValue({ ok: true, status: "complete" });

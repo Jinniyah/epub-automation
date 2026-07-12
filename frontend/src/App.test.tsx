@@ -44,12 +44,13 @@ function book(overrides: Partial<Book> = {}): Book {
 function mockCore(settingsValue: Settings, statusValue: StatusResponse) {
   vi.spyOn(client, "getSettings").mockResolvedValue(settingsValue);
   vi.spyOn(client, "getWelcomeBack").mockResolvedValue({ pending_book_ids: [] });
-  vi.spyOn(client, "getStatus").mockResolvedValue(statusValue);
+  const getStatusSpy = vi.spyOn(client, "getStatus").mockResolvedValue(statusValue);
   vi.spyOn(client, "getDiskSpace").mockResolvedValue({
     estimated_total_bytes: 0,
     any_insufficient: false,
     checked_paths: [],
   });
+  return { getStatusSpy };
 }
 
 describe("App", () => {
@@ -191,7 +192,7 @@ describe("App", () => {
       }),
     );
     vi.spyOn(client, "getVoices").mockResolvedValue({
-      voices: [{ key: "af_heart", name: "Heart" }],
+      voices: [{ key: "af_heart", name: "Heart", gender: "Female" }],
     });
 
     render(<App />);
@@ -368,6 +369,35 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Something went wrong" })).toBeInTheDocument();
   });
 
+  it("error screen offers to remove the offending book, so she isn't stuck", async () => {
+    const cancelSpy = vi
+      .spyOn(client, "cancelBook")
+      .mockResolvedValue({ ok: true, status: "cancelled" });
+    const { getStatusSpy } = mockCore(
+      settings(),
+      status({
+        state: "error",
+        error: {
+          book_id: "b1",
+          summary: "Something went wrong.",
+          support_bundle_available: true,
+        },
+        books: [book({ status: "error" })],
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Something went wrong" });
+
+    await user.click(
+      screen.getByRole("button", { name: 'Remove "Fated.epub" from this batch' }),
+    );
+
+    expect(cancelSpy).toHaveBeenCalledWith("b1");
+    await vi.waitFor(() => expect(getStatusSpy).toHaveBeenCalledTimes(2));
+  });
+
   it("opens and returns from the folders settings sub-view via Screen 1's entry point", async () => {
     const user = userEvent.setup();
     mockCore(settings(), status());
@@ -381,5 +411,51 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(await screen.findByText("Add your books")).toBeInTheDocument();
+  });
+
+  it("shows the app header everywhere, but Home only in a settings sub-view", async () => {
+    const user = userEvent.setup();
+    mockCore(settings(), status());
+
+    render(<App />);
+    await screen.findByText("Add your books");
+
+    expect(screen.getByRole("banner")).toHaveTextContent("Audiobook Maker");
+    expect(screen.queryByRole("button", { name: /Home/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
+    await screen.findByText("Your folders");
+
+    expect(screen.getByRole("button", { name: "🏠 Home" })).toBeInTheDocument();
+  });
+
+  it("Home in a settings sub-view returns to the main flow", async () => {
+    const user = userEvent.setup();
+    mockCore(settings(), status());
+
+    render(<App />);
+    await screen.findByText("Add your books");
+    await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
+    await screen.findByText("Your folders");
+
+    await user.click(screen.getByRole("button", { name: "🏠 Home" }));
+
+    expect(await screen.findByText("Add your books")).toBeInTheDocument();
+  });
+
+  it("does not show Home mid-batch (working)", async () => {
+    mockCore(
+      settings(),
+      status({
+        state: "working",
+        active_book_id: "b1",
+        books: [book({ status: "generating", title: "Fated" })],
+      }),
+    );
+
+    render(<App />);
+    await screen.findByText("Working on: Fated");
+
+    expect(screen.queryByRole("button", { name: /Home/ })).not.toBeInTheDocument();
   });
 });

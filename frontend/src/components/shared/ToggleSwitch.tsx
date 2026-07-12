@@ -20,8 +20,12 @@ export function ToggleSwitch({ label, checked, onChange }: ToggleSwitchProps) {
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span>{label}</span>
+      <span className="clickable-row__label">{label}</span>
       <span>{checked ? "On" : "Off"}</span>
+      {/* Decorative pill switch -- the On/Off text above already
+       * carries the same information for a screen reader and without
+       * relying on color. */}
+      <span className="toggle-visual" aria-hidden="true" />
     </label>
   );
 }

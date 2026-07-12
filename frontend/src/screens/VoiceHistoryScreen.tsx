@@ -70,11 +70,11 @@ export function VoiceHistoryScreen({ onDone }: VoiceHistoryScreenProps) {
       ) : null}
 
       {state === "ready" ? (
-        <ul>
+        <ul className="row-list">
           {entries.map((entry) => (
-            <li key={entry.label}>
-              📖 {entry.label}
-              <span>{entry.voiceName}</span>
+            <li key={entry.label} className="row-list__item">
+              <span className="row-list__label">📖 {entry.label}</span>
+              <span className="caption">{entry.voiceName}</span>
             </li>
           ))}
         </ul>

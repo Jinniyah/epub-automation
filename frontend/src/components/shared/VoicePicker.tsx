@@ -73,7 +73,9 @@ export function VoicePicker({
               checked={voice === v.key}
               onSelect={setVoice}
               label={v.name}
-              badge={v.key === lastUsedVoice ? "last used" : undefined}
+              badge={[v.gender, v.key === lastUsedVoice ? "last used" : null]
+                .filter(Boolean)
+                .join(", ")}
               action={{
                 label: `Play preview: ${v.name}`,
                 icon: <span aria-hidden="true">▶ Listen</span>,

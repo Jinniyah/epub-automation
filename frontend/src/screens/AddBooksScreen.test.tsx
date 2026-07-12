@@ -65,7 +65,7 @@ describe("AddBooksScreen", () => {
     expect(screen.getByText("Fated.epub")).toBeInTheDocument();
     expect(screen.getByText("Cursed.epub")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    await user.click(screen.getByRole("button", { name: 'Remove "Fated.epub"' }));
 
     expect(removeSpy).toHaveBeenCalledWith("b1");
     expect(handlers.onChanged).toHaveBeenCalled();

@@ -125,4 +125,41 @@ describe("ConfirmMetadataScreen", () => {
     render(<ConfirmMetadataScreen book={book()} asOverlay onConfirmed={() => {}} />);
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
+
+  it("offers to remove this book when onRemoved is provided, and it works", async () => {
+    const user = userEvent.setup();
+    const cancelSpy = vi
+      .spyOn(client, "cancelBook")
+      .mockResolvedValue({ ok: true, status: "cancelled" });
+    const onRemoved = vi.fn();
+    render(
+      <ConfirmMetadataScreen book={book()} onConfirmed={() => {}} onRemoved={onRemoved} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^Remove / }));
+
+    expect(cancelSpy).toHaveBeenCalledWith("b1");
+    expect(onRemoved).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Remove button when onRemoved isn't provided", () => {
+    render(<ConfirmMetadataScreen book={book()} onConfirmed={() => {}} />);
+    expect(
+      screen.queryByRole("button", { name: /^Remove / }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never offers to remove the book in asOverlay mode, even with onRemoved provided", () => {
+    render(
+      <ConfirmMetadataScreen
+        book={book()}
+        asOverlay
+        onConfirmed={() => {}}
+        onRemoved={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /^Remove / }),
+    ).not.toBeInTheDocument();
+  });
 });

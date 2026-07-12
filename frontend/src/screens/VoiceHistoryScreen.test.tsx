@@ -16,7 +16,7 @@ describe("VoiceHistoryScreen", () => {
       history: [{ label: "Alex Verus", voice: "bm_george" }],
     });
     vi.spyOn(client, "getVoices").mockResolvedValue({
-      voices: [{ key: "bm_george", name: "George" }],
+      voices: [{ key: "bm_george", name: "George", gender: "Male" }],
     });
     render(<VoiceHistoryScreen onDone={() => {}} />);
 
@@ -73,7 +73,7 @@ describe("VoiceHistoryScreen", () => {
       history: [{ label: "Alex Verus", voice: "bm_george" }],
     });
     vi.spyOn(client, "getVoices").mockResolvedValue({
-      voices: [{ key: "bm_george", name: "George" }],
+      voices: [{ key: "bm_george", name: "George", gender: "Male" }],
     });
     const { container } = render(<VoiceHistoryScreen onDone={() => {}} />);
     await screen.findByText("George");

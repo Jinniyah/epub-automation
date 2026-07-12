@@ -46,19 +46,21 @@ export function AiHelperSetup({ onDone }: AiHelperSetupProps) {
           Want help fixing messy file names automatically?
         </h1>
         <p>This uses a free online helper to guess titles and authors.</p>
-        <BigButton variant="primary" onClick={() => setStep("choice")}>
-          Yes, help me
-        </BigButton>
-        <BigButton
-          variant="plain"
-          disabled={saving}
-          onClick={() => {
-            setSaving(true);
-            void skipToNullProvider(onDone);
-          }}
-        >
-          Skip, I'll do it myself
-        </BigButton>
+        <div className="button-row">
+          <BigButton variant="primary" onClick={() => setStep("choice")}>
+            Yes, help me
+          </BigButton>
+          <BigButton
+            variant="plain"
+            disabled={saving}
+            onClick={() => {
+              setSaving(true);
+              void skipToNullProvider(onDone);
+            }}
+          >
+            Skip, I'll do it myself
+          </BigButton>
+        </div>
       </main>
     );
   }
@@ -67,23 +69,28 @@ export function AiHelperSetup({ onDone }: AiHelperSetupProps) {
     return (
       <main aria-labelledby="ai-choice-heading">
         <h1 id="ai-choice-heading">Pick a helper</h1>
-        <RadioRow
-          name="ai-provider"
-          value="gemini"
-          checked={provider === "gemini"}
-          onSelect={() => setProvider("gemini")}
-          label={PROVIDER_LABELS.gemini}
-        />
-        <RadioRow
-          name="ai-provider"
-          value="openai"
-          checked={provider === "openai"}
-          onSelect={() => setProvider("openai")}
-          label={PROVIDER_LABELS.openai}
-        />
+        <div className="stack-sm">
+          <RadioRow
+            name="ai-provider"
+            value="gemini"
+            checked={provider === "gemini"}
+            onSelect={() => setProvider("gemini")}
+            label={PROVIDER_LABELS.gemini}
+          />
+          <RadioRow
+            name="ai-provider"
+            value="openai"
+            checked={provider === "openai"}
+            onSelect={() => setProvider("openai")}
+            label={PROVIDER_LABELS.openai}
+          />
+        </div>
         <BigButton variant="primary" onClick={() => setStep("key")}>
           Next
         </BigButton>
+        <button type="button" className="link-button" onClick={() => setStep("intro")}>
+          ← Back
+        </button>
       </main>
     );
   }
@@ -109,26 +116,31 @@ export function AiHelperSetup({ onDone }: AiHelperSetupProps) {
           Get a code
         </a>
       </p>
-      <BigButton
-        variant="plain"
-        disabled={saving}
-        onClick={() => {
-          setSaving(true);
-          void skipToNullProvider(onDone);
-        }}
-      >
-        Skip for now
-      </BigButton>
-      <BigButton
-        variant="primary"
-        disabled={saving || code.trim() === ""}
-        onClick={() => {
-          setSaving(true);
-          void updateSettings({ ai_provider: provider, ai_api_key: code }).then(onDone);
-        }}
-      >
-        Done
-      </BigButton>
+      <div className="button-row">
+        <BigButton
+          variant="plain"
+          disabled={saving}
+          onClick={() => {
+            setSaving(true);
+            void skipToNullProvider(onDone);
+          }}
+        >
+          Skip for now
+        </BigButton>
+        <BigButton
+          variant="primary"
+          disabled={saving || code.trim() === ""}
+          onClick={() => {
+            setSaving(true);
+            void updateSettings({ ai_provider: provider, ai_api_key: code }).then(onDone);
+          }}
+        >
+          Done
+        </BigButton>
+      </div>
+      <button type="button" className="link-button" onClick={() => setStep("choice")}>
+        ← Back
+      </button>
     </main>
   );
 }

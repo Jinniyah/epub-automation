@@ -208,13 +208,17 @@ def test_status_response_includes_progress_only_for_the_generating_book() -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_voice_choices_strips_gender_and_accent_detail() -> None:
+def test_voice_choices_strips_accent_and_locale_but_keeps_gender() -> None:
     from backend.bridge import voice_choices
 
     choices = voice_choices()
 
-    assert {"key": "bm_george", "name": "George"} in choices
+    assert {"key": "bm_george", "name": "George", "gender": "Male"} in choices
+    assert {"key": "af_heart", "name": "Heart", "gender": "Female"} in choices
     assert all("(" not in c["name"] and ")" not in c["name"] for c in choices)
+    assert all(
+        "en-us" not in c["gender"] and "en-gb" not in c["gender"] for c in choices
+    )
 
 
 def test_voice_choices_covers_every_voice_key() -> None:
