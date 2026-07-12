@@ -11,7 +11,9 @@ arbitrary filesystem paths directly).
 
 from __future__ import annotations
 
+import os
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Callable
 
@@ -57,3 +59,27 @@ def pick_folder(
     finally:
         root.destroy()
     return chosen or None
+
+
+FolderOpener = Callable[[str], None]
+
+
+def open_folder(path: str, *, opener: FolderOpener = os.startfile) -> bool:
+    """Open *path* directly in File Explorer (03-gui-ux-design.md's
+    "📂 See the audiobook files" / "📂 See all my finished books" links) --
+    the same reasoning as `pick_folder()` above: a browser page cannot
+    open a native Explorer window on an arbitrary local path itself, so
+    Flask (unsandboxed, running natively on her machine) does it on the
+    page's behalf. Windows-only (`00-overview-and-goals.md`'s confirmed
+    v1 scope), hence `os.startfile` rather than a cross-platform `open`/
+    `xdg-open` dispatch.
+
+    Returns False (not an exception) for a path that doesn't exist --
+    her book output can legitimately have moved or been deleted since
+    the link was shown; the route this backs surfaces that as a friendly
+    message rather than a raw OS error.
+    """
+    if not Path(path).is_dir():
+        return False
+    opener(path)
+    return True

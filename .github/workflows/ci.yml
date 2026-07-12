@@ -40,9 +40,31 @@ jobs:
       # enforcement) -- wired up properly in Epic 11's documentation pass;
       # the coverage.xml artifact above is what a badge action would read.
 
-  # Frontend job (Vitest + React Testing Library, axe-core, eslint-plugin-
-  # jsx-a11y -- docs/requirements/09-testing-strategy.md) is added in
-  # Epic 7 once frontend/ actually exists as a real Vite project. Adding
-  # an empty/placeholder job here now would just be a job that always
-  # trivially passes, which is worse than no job at all for a portfolio
-  # piece's CI signal -- see docs/BACKLOG.md Epic 7.
+  frontend:
+    name: Frontend (lint, typecheck, test, coverage, a11y)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (eslint, incl. eslint-plugin-jsx-a11y)
+        run: npm run lint
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+
+      # Coverage (80% floor) + axe-core assertions in component tests --
+      # docs/requirements/09-testing-strategy.md.
+      - name: Test + coverage
+        run: npm run coverage

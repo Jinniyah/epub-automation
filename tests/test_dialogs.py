@@ -7,11 +7,12 @@ seams), not monkeypatched stdlib internals.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from backend.dialogs import pick_folder
+from backend.dialogs import open_folder, pick_folder
 
 
 class _FakeRoot:
@@ -105,3 +106,32 @@ def test_pick_folder_omits_initialdir_when_not_given(fake_root: _FakeRoot) -> No
 
     assert "initialdir" not in captured
     assert captured["title"] == "Choose a folder"
+
+
+def test_open_folder_calls_the_opener_for_an_existing_directory(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    result = open_folder(str(tmp_path), opener=calls.append)
+
+    assert result is True
+    assert calls == [str(tmp_path)]
+
+
+def test_open_folder_returns_false_for_a_missing_path(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    result = open_folder(str(tmp_path / "does-not-exist"), opener=calls.append)
+
+    assert result is False
+    assert calls == []
+
+
+def test_open_folder_returns_false_for_a_file_not_a_directory(tmp_path: Path) -> None:
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("hi")
+    calls: list[str] = []
+
+    result = open_folder(str(file_path), opener=calls.append)
+
+    assert result is False
+    assert calls == []

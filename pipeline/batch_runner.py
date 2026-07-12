@@ -170,7 +170,28 @@ class BatchRunner:
         with self._lock:
             return [self._books[bid] for bid in self._book_order]
 
-    def add_book(self, source_path: Path) -> AddBookResult:
+    def add_book(
+        self, source_path: Path, *, original_filename: str | None = None
+    ) -> AddBookResult:
+        """`original_filename` defaults to `source_path.name` -- correct
+        for CLI-style callers where that *is* the real filename, but the
+        GUI upload route must pass the browser's own multipart filename
+        explicitly: it saves each upload to a collision-avoiding
+        `<index>_<name>` temp path first
+        (`backend/app.py::_safe_upload_path()`), and without this
+        override that index prefix would otherwise leak into
+        `original_filename` (what Screen 1 actually displays) -- a real
+        bug found via a live browser smoke test, not by the unit suite,
+        since every existing test happened to call this with a source
+        path that was already the true filename.
+
+        Deliberately used for *display only* -- the `00-Incoming/` copy
+        itself still takes its filename from `source_path.name` (already
+        sanitized by `_safe_upload_path()`), never from this
+        attacker-controlled value, so a crafted `original_filename`
+        can't reintroduce a path-traversal write via `_dedupe_path()`
+        below.
+        """
         with self._lock:
             capacity = check_batch_capacity(len(self._books), self._max_files)
             if not capacity.ok:
@@ -184,6 +205,7 @@ class BatchRunner:
                     False, reason=validation.reason, message=validation.message
                 )
 
+            display_name = original_filename or source_path.name
             book_id = uuid.uuid4().hex[:8]
             self._incoming_dir.mkdir(parents=True, exist_ok=True)
             dest = _dedupe_path(self._incoming_dir / source_path.name)
@@ -193,7 +215,7 @@ class BatchRunner:
                 book_id=book_id,
                 status=STATUS_PENDING,
                 data={
-                    "original_filename": source_path.name,
+                    "original_filename": display_name,
                     "filename": dest.name,
                     "source_bytes": source_path.stat().st_size,
                     # Per-stage-folder filename, keyed by stage -- what
@@ -501,7 +523,42 @@ class BatchRunner:
         self._maybe_enter_voice_pick()
         return updated
 
+    def update_metadata(self, book_id: str, corrections: dict[str, Any]) -> BookState:
+        """Correct a book's title/author/series while it's sitting at
+        `voice_pick`, before any audio exists to retag -- the multi-book
+        voice table's clickable book title reopens the same metadata
+        review used during identification, without leaving that screen
+        or derailing the rest of the batch (03-gui-ux-design.md §Voice
+        assignment). Distinct from `retag_book()` below, which operates
+        on an already-generated audiobook's files on disk; this just
+        patches the in-memory metadata generation will use.
+        """
+        with self._lock:
+            book = self._books[book_id]
+            if book.status != STATUS_VOICE_PICK:
+                raise ValueError(
+                    f"Book {book_id!r} is not available for metadata edits"
+                )
+            data = dict(book.data)
+            for key in self._METADATA_FIELDS:
+                if key in corrections:
+                    data[key] = corrections[key]
+            updated = replace(book, data=data)
+            self._books[book_id] = updated
+        return updated
+
     def _maybe_enter_voice_pick(self) -> None:
+        """Pre-fills every newly-identified book with her single global
+        last-used voice (03-gui-ux-design.md §Voice assignment: "a
+        suggestion only, not a lock"). Deliberately does **not** trigger
+        the single-book auto-start itself -- that must wait for her
+        actual selection via `assign_voice()` below (its own docstring:
+        "picking a voice and pressing Next starts generating
+        immediately"). Calling it from here too used to fire it the
+        instant metadata was confirmed, before the single-book voice
+        picker screen could ever matter -- a real bug found while
+        building that screen (Epic 8), not a deliberate design choice.
+        """
         with self._lock:
             active = [self._books[bid] for bid in self._book_order]
             still_identifying = any(
@@ -521,8 +578,6 @@ class BatchRunner:
                     status=STATUS_VOICE_PICK,
                     data={**book.data, "voice": default_voice},
                 )
-
-        self._maybe_auto_start_single_book_generation()
 
     def assign_voice(self, book_id: str, voice: str) -> BookState:
         """ "Change Voice" on one row of the multi-book table, or the

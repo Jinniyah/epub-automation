@@ -25,6 +25,7 @@ from pipeline.tts_engine import (
     TTSEngine,
     ensure_voice_samples,
     estimate_audio_bytes,
+    installed_kokoro_version,
 )
 
 
@@ -158,6 +159,34 @@ def test_estimate_audio_bytes_rounds_up() -> None:
 
 def test_estimate_audio_bytes_zero_chars_is_zero() -> None:
     assert estimate_audio_bytes(0) == 0
+
+
+# ---------------------------------------------------------------------------
+# installed_kokoro_version
+# ---------------------------------------------------------------------------
+
+
+def test_installed_kokoro_version_reads_real_package_metadata() -> None:
+    # kokoro is a pinned real dependency (requirements.txt) -- this must
+    # resolve to its actual installed version, not the "unknown"
+    # fallback, and must not need to import the kokoro package itself.
+    version = installed_kokoro_version()
+
+    assert version != "unknown"
+    assert version
+
+
+def test_installed_kokoro_version_falls_back_when_metadata_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib.metadata
+
+    def _raise(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", _raise)
+
+    assert installed_kokoro_version() == "unknown"
 
 
 # ---------------------------------------------------------------------------

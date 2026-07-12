@@ -202,6 +202,22 @@ def test_add_book_copies_into_incoming_and_returns_pending_book(tmp_path: Path) 
     assert incoming.exists()
 
 
+def test_add_book_original_filename_override_is_display_only(tmp_path: Path) -> None:
+    """The GUI upload route saves each upload under a collision-avoiding
+    `<index>_<name>` temp filename first, then passes the real name
+    through `original_filename` -- must show up as the display name
+    without affecting where the safe internal copy actually lands."""
+    runner = _make_runner(tmp_path)
+    src = _make_epub(tmp_path / "source" / "0_Fated.epub")
+
+    result = runner.add_book(src, original_filename="Fated.epub")
+
+    assert result.book is not None
+    assert result.book.data["original_filename"] == "Fated.epub"
+    incoming = tmp_path / "Library" / "00-Incoming" / "0_Fated.epub"
+    assert incoming.exists()
+
+
 def test_add_book_rejects_non_epub_file(tmp_path: Path) -> None:
     runner = _make_runner(tmp_path)
     bogus = tmp_path / "source" / "notes.txt"
@@ -410,9 +426,55 @@ def test_assign_voice_changes_one_row_without_affecting_others(tmp_path: Path) -
     assert _data_of(runner, id2)["voice"] != "bf_alice"
 
 
+def test_update_metadata_patches_fields_while_at_voice_pick(tmp_path: Path) -> None:
+    runner = _make_runner(
+        tmp_path, settings={"ai_provider": "none", "clean_language": False}
+    )
+    id1 = _add_book(runner, tmp_path, name="one.epub")
+    _run_identification_and_confirm(runner, [id1])
+
+    updated = runner.update_metadata(id1, {"title": "Corrected Title"})
+
+    assert updated.status == STATUS_VOICE_PICK
+    assert updated.data["title"] == "Corrected Title"
+
+
+def test_update_metadata_rejects_a_book_not_at_voice_pick(tmp_path: Path) -> None:
+    runner = _make_runner(tmp_path)
+    book_id = _add_book(runner, tmp_path)
+
+    with pytest.raises(ValueError):
+        runner.update_metadata(book_id, {"title": "New"})
+
+
 # ---------------------------------------------------------------------------
 # End-to-end generation -> review -> complete -> cleanup (ADR-0017)
 # ---------------------------------------------------------------------------
+
+
+def test_confirming_metadata_alone_does_not_auto_start_generation(
+    tmp_path: Path,
+) -> None:
+    """Regression test for a real bug found while building the Epic 8
+    voice-picker screen: entering `voice_pick` used to auto-start
+    generation immediately, before she ever got a chance to actually see
+    the single-book voice picker or choose anything -- see
+    `_maybe_enter_voice_pick()`'s own docstring."""
+    engine = _FakeTTSEngine()
+    runner = _make_runner(
+        tmp_path,
+        tts_engine=engine,
+        settings={"ai_provider": "none", "clean_language": False},
+    )
+    book_id = _add_book(runner, tmp_path)
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+
+    runner.confirm_metadata(book_id)
+
+    time.sleep(0.1)
+    assert _status_of(runner, book_id) == STATUS_VOICE_PICK
+    assert engine.calls == []
 
 
 def test_single_book_batch_auto_starts_generation_after_voice_assignment(
@@ -427,7 +489,8 @@ def test_single_book_batch_auto_starts_generation_after_voice_assignment(
     book_id = _add_book(runner, tmp_path)
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
-    runner.confirm_metadata(book_id)  # -> voice_pick, auto-starts generation
+    runner.confirm_metadata(book_id)  # -> voice_pick, not yet generating
+    runner.assign_voice(book_id, "af_heart")  # -> auto-starts generation
 
     _wait_until(
         lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT
@@ -456,7 +519,10 @@ def test_state_file_is_kept_current_as_each_stage_finishes(tmp_path: Path) -> No
     assert reloaded.is_stage_complete(book_id, "sanitize") is True
     assert book_id in reloaded.incomplete_book_ids()  # not "cleanup" yet
 
-    runner.confirm_metadata(book_id)  # single book -> auto-generates -> completes
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(
+        book_id, "af_heart"
+    )  # single book -> auto-generates -> completes
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
         == NeedsInputType.REVIEW_RESULT
@@ -479,7 +545,8 @@ def test_review_yes_marks_complete_and_cleans_up_library_copies(tmp_path: Path) 
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     data = _data_of(runner, book_id)
     incoming_copy = tmp_path / "Library" / "00-Incoming" / data["_trace"]["incoming"]
-    runner.confirm_metadata(book_id)  # single-book -> auto-generates
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")  # single-book -> auto-generates
 
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
@@ -510,6 +577,7 @@ def test_review_no_then_retag_applies_overrides_to_the_output_copy_only(
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
 
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
@@ -558,6 +626,7 @@ def test_output_collision_pauses_for_her_decision_instead_of_overwriting(
     (colliding / "sentinel.txt").write_text("pre-existing content")
 
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
 
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
@@ -579,6 +648,7 @@ def test_resolve_collision_keep_both_preserves_the_original(tmp_path: Path) -> N
     colliding.mkdir(parents=True)
     (colliding / "sentinel.txt").write_text("pre-existing content")
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
         == NeedsInputType.OUTPUT_COLLISION
@@ -604,6 +674,7 @@ def test_resolve_collision_replace_overwrites_the_original(tmp_path: Path) -> No
     colliding.mkdir(parents=True)
     (colliding / "sentinel.txt").write_text("pre-existing content")
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
     _wait_until(
         lambda: _data_of(runner, book_id).get("needs_input_type")
         == NeedsInputType.OUTPUT_COLLISION
@@ -633,7 +704,10 @@ def test_pause_mid_generation_stops_before_the_next_chunk(tmp_path: Path) -> Non
     book_id = _add_book(runner, tmp_path, chapters=[("Chapter 1", _MULTI_CHUNK_TEXT)])
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
-    runner.confirm_metadata(book_id)  # auto-starts generation; blocks on the gate
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(
+        book_id, "af_heart"
+    )  # auto-starts generation; blocks on the gate
 
     # Wait until chunk 1's should_stop check has already run (and found no
     # pending pause) before requesting one -- otherwise request_pause()
@@ -664,6 +738,7 @@ def test_resuming_a_paused_book_continues_from_where_it_left_off(
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
     engine.entered.wait(timeout=5)
     runner.request_pause(book_id)
     engine.gate.set()
@@ -729,6 +804,7 @@ def test_cancel_keep_partial_preserves_the_audio_folder(tmp_path: Path) -> None:
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
     engine.entered.wait(timeout=5)  # generation has genuinely started
 
     runner.request_cancel(book_id, keep_partial=True)
@@ -752,6 +828,7 @@ def test_cancel_discard_deletes_the_partial_audio_folder(tmp_path: Path) -> None
     runner.start()
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
     audio_folder_hint = tmp_path / "Library" / "03-Audio"
     engine.entered.wait(timeout=5)  # generation has genuinely started
 

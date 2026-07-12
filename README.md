@@ -6,18 +6,26 @@ CLI for technical use, and a local web GUI designed for someone who
 can't run scripts from a terminal and has real physical constraints
 using a computer.
 
-> **Status: the shared pipeline core and both API surfaces are built and
-> tested; the accessible GUI itself isn't usable yet.** Epics 0–6 are
-> complete: every pipeline stage (rename, sanitize, audio, retag), the
-> CLI front door, and the Flask/JSON backend the GUI will talk to are
-> all real, working code — 390 tests passing, ~96% coverage, `black`/
-> `ruff`/`mypy --strict` clean, all CI-enforced. What's *not* built yet
-> is the React frontend itself (Epic 7+) — the backend serves a real
-> API today, but there's no browser UI in front of it, so the
-> accessible GUI this project exists for isn't something she can use
-> yet. The CLI, on the other hand, is fully usable right now — see
-> [Getting started](#getting-started) below. Full requirement docs live
-> in [`docs/requirements/`](docs/requirements/);
+> **Status: the shared pipeline core, both API surfaces, and the
+> accessible GUI's React frontend are all built and tested — one real
+> gap stands between that and a single-command working GUI.** Epics
+> 0–8 are complete: every pipeline stage, the CLI front door, the
+> Flask/JSON backend, and every screen in
+> [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
+> real, working, tested code — 413 backend tests (~96% coverage) + 331
+> frontend tests (~85-90% coverage), `black`/`ruff`/`mypy --strict` +
+> `eslint`/`tsc` all clean, all CI-enforced, and the full flow
+> (Screen 1 → identification → voice picker → generation → review) has
+> been live-tested end to end against the real backend and the real
+> Kokoro TTS engine, not just mocks. **The one thing not yet wired up:
+> Flask doesn't yet serve the built frontend** — dev mode (Vite's own
+> dev server + a separately-running backend, two processes) shows the
+> real GUI today, but `python launcher.py` alone still opens a browser
+> to a `404`, since nothing has told Flask how to serve `frontend/dist/`
+> yet. That's genuinely packaging-shaped work (Epic 10 — see
+> `docs/BACKLOG.md`), not a frontend gap. The CLI is fully usable right
+> now regardless — see [Getting started](#getting-started) below. Full
+> requirement docs live in [`docs/requirements/`](docs/requirements/);
 > [`docs/design/SYSTEM_DESIGN.md`](docs/design/SYSTEM_DESIGN.md) and
 > [`docs/design/adr/`](docs/design/adr/) (one Architecture Decision
 > Record per binding decision, several refined post-implementation as
@@ -65,12 +73,13 @@ pipeline engine. Neither contains its own copy of the pipeline logic.
   project is evaluated against those two constraints specifically, not
   a generic "make it friendly" goal. See
   [`docs/requirements/03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md)
-  for the full screen-by-screen design. **The backend API this GUI
-  needs is complete and tested** — every route it calls
-  ([full reference](docs/requirements/01-architecture.md#full-api-route-reference-epic-6-backendapppy))
-  exists and works — **but the React frontend itself hasn't been built
-  yet** (Epic 7+), so there's no browser screen to actually click
-  through yet.
+  for the full screen-by-screen design. **Built and tested** — every
+  screen, the backend API it calls
+  ([full reference](docs/requirements/01-architecture.md#full-api-route-reference-epic-6-backendapppy)),
+  and the wiring between them. **Runnable in dev mode today** (see
+  [Getting started](#getting-started)); the single-command production
+  path (`python launcher.py` alone) is blocked on Flask gaining a route
+  to serve the built frontend, tracked as Epic 10 packaging work.
 
 The GUI runs as a background Flask server the browser talks to over
 polling — not a desktop-window wrapper — specifically so that closing
@@ -120,10 +129,27 @@ make check     # lint + typecheck + coverage -- what CI actually runs
 make format    # black + ruff --fix
 ```
 
-`python launcher.py` starts the Flask/waitress backend on a free local
-port and opens a browser tab to it — useful for exercising the API
-directly (or once frontend work starts) but not yet a working GUI,
-since there's no page there to serve yet.
+### Running the GUI (dev mode)
+
+Two processes, in separate terminals — Flask doesn't yet serve the
+built frontend directly (see the status note at the top of this
+README; that's Epic 10 packaging work):
+
+```powershell
+# Terminal 1 -- backend, fixed dev port so Vite's proxy can find it
+python -c "from waitress import serve; from backend.app import create_app; serve(create_app(), host='127.0.0.1', port=5000)"
+
+# Terminal 2 -- frontend
+cd frontend
+npm install
+npm run dev
+```
+
+Then open the URL Vite prints (`http://localhost:5173`). `python
+launcher.py` alone (no `frontend` terminal) starts the same backend on
+a dynamically-assigned port and opens a browser tab to it, but that tab
+will 404 today — it's built for the eventual single-origin production
+path, not dev mode.
 
 ## Accessibility beyond the primary persona: WCAG 2.1 AA alignment
 
@@ -213,10 +239,10 @@ docs, not an intentional split of authority.
 |---|---|---|
 | Core pipeline | Python 3.11+ | Built |
 | GUI backend | Flask, served via `waitress`, bound to `127.0.0.1` only | Built |
-| GUI frontend | React (Vite build), bundled static output — no Node/npm needed at runtime | Not started (Epic 7+) |
+| GUI frontend | React 19 + TypeScript (Vite build), bundled static output — no Node/npm needed at runtime | Built, dev-mode runnable; Flask-serves-`dist/` wiring is Epic 10 |
 | Text-to-speech | `kokoro` (Kokoro-82M, local inference) | Built |
 | Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 |
-| Testing | `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict` — all CI-enforced | Built, 390 tests passing |
+| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`. Both CI-enforced. | Built, 413 backend + 331 frontend tests passing |
 
 ## License
 

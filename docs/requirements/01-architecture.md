@@ -312,9 +312,19 @@ a whole (see below).
 
 ### Voice assignment
 
+**New this epic (Epic 8) — the frontend's own voice picker needed a way
+to learn what voice keys exist and let her preview them; nothing in the
+Epic 6 route set provided either:**
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `GET /api/voices` | — | `{"voices": [{"key": "af_heart", "name": "Heart"}, ...]}` | Plain first-name-only list (`backend/bridge.py::voice_choices()`) — "no technical voice keys, no gender/accent/quality-grade labels" (`03-gui-ux-design.md` §Voice assignment). **Also this app's chosen trigger point for the lazy voice-sample cache build**: the first call after a `kokoro` version change blocks while `ensure_voice_samples()` regenerates all 28 samples (real-hardware-measured ~48s on CPU); every call after that is a cheap version-tag check. Call once when the voice picker screen opens, not per-row. |
+| `GET /api/voice-samples/<voice>` | — | `audio/mpeg` bytes, or `404` `{"ok": false, "error": str}` if the voice key is unknown or its sample isn't cached yet | "▶ Listen" — set as an `<audio>` element's `src` directly; instant once cached, per `04-tts-engine.md` §Voice samples. |
+
 | Method & path | Body | Response | Notes |
 |---|---|---|---|
 | `POST /api/books/<book_id>/voice` | `{"voice": "af_heart"}` (a key from `pipeline/tts_engine.py::VOICES`) | `{"ok": true, "voice": str}`, `400` if `voice` missing, `409` if the book isn't at `voice_pick` | "Change Voice" (multi-book table) or the single-book picker's selection. |
+| `POST /api/books/<book_id>/metadata` | `{"corrections": {"title": ..., "author_first": ..., "author_last": ..., "series": ..., "series_number": ...}}` | `{"ok": true, "status": str}`, `409` if the book isn't currently at `voice_pick` | **New this epic (Epic 8):** the multi-book voice table's clickable book title (`03-gui-ux-design.md` §Voice assignment: "reopening that book's metadata review ... without leaving this screen"). Distinct from `confirm` above (only accepts a book still awaiting identification confirmation) and `retag` below (rewrites already-generated files on disk) — this just patches the in-memory metadata a book already past identification will generate/tag with, no filesystem work at all. |
 
 ### Pause / Cancel (`06-safety-error-handling.md` §Cancel design)
 
@@ -336,6 +346,21 @@ a whole (see below).
 | `POST /api/books/<book_id>/review` | `{"looks_good": bool}` | `{"ok": true, "status": str}`, `409` if there's no pending review | `looks_good: true` marks the book `complete` and triggers ADR-0017 cleanup. `looks_good: false` leaves the book parked, waiting for the corrected fields via the `retag` route below — it does not, by itself, open any correction UI (that's a frontend concern). |
 | `POST /api/books/<book_id>/retag` | `{"overrides": {"title": ..., "author_first": ..., "author_last": ..., "series": ..., "series_number": ...}}` | `{"ok": true, "status": "complete"}` on success; `{"ok": false, "error": str}` with **`422`** if the retag itself failed (e.g. author/title still can't be resolved) | The one place a `2xx`-vs-failure distinction rides entirely on the JSON body's `ok` field doesn't apply — a genuine failure here is a real non-2xx status, unlike the upload route above. |
 
+### Opening folders in File Explorer (`03-gui-ux-design.md` §Screen: Review)
+
+**New this epic (Epic 8) — same reasoning as the native folder picker
+above (ADR-0006): a browser page cannot open a native Explorer window
+on an arbitrary local path itself, so Flask does it on the page's
+behalf. Neither route ever takes or returns a real filesystem path**
+— consistent with `03-gui-ux-design.md`'s "What is explicitly NOT
+exposed to her" rule ("any file paths other than the two folders she
+picked") — the path is always resolved server-side.
+
+| Method & path | Body | Response | Notes |
+|---|---|---|---|
+| `POST /api/books/<book_id>/open-folder` | — | `{"ok": true}`, or `{"ok": false, "error": "That folder couldn't be found."}` (not a 4xx — a friendly-degradation case, same pattern as everywhere else in this API) | "📂 See the audiobook files" — opens *this book's own* subfolder, resolved from its own already-tracked `output_audio_folder`. |
+| `POST /api/open-output-folder` | — | Same shape as above | "📂 See all my finished books" — opens her remembered `output_folder`. |
+
 ### "What voice did I use before?" (`03-gui-ux-design.md` §Settings areas)
 
 | Method & path | Body | Response | Notes |
@@ -352,7 +377,7 @@ a whole (see below).
 
 | Method & path | Body | Response | Notes |
 |---|---|---|---|
-| `GET /api/welcome-back` | — | `{"pending_book_ids": [str, ...]}` | Answers "is anything pending" from `state.json` alone. **Does not** reconstruct a live `BatchRunner` for those books — actually resuming a batch across a backend restart is Epic 8 scope, once the "Welcome back" screen exists to drive it (`docs/BACKLOG.md`). |
+| `GET /api/welcome-back` | — | `{"pending_book_ids": [str, ...]}` | Answers "is anything pending" from `state.json` alone. **Does not** reconstruct a live `BatchRunner` for those books. The Epic 8 "Welcome back" screen (`frontend/src/screens/WelcomeBack.tsx`) is built against exactly this — when the current status poll still has the pending books loaded (the common case: she just closed the tab, the background process kept running) it shows their real titles/phase; when it doesn't (a genuine backend restart, no reconstruction), it degrades honestly to a plain count rather than inventing detail. Actually reconstructing a live `BatchRunner` from `state.json` after a restart remains genuinely open — no epic currently owns it, see `docs/BACKLOG.md`'s Open Items. |
 
 ### Quit
 

@@ -204,6 +204,27 @@ def test_status_response_includes_progress_only_for_the_generating_book() -> Non
 
 
 # ---------------------------------------------------------------------------
+# voice_choices
+# ---------------------------------------------------------------------------
+
+
+def test_voice_choices_strips_gender_and_accent_detail() -> None:
+    from backend.bridge import voice_choices
+
+    choices = voice_choices()
+
+    assert {"key": "bm_george", "name": "George"} in choices
+    assert all("(" not in c["name"] and ")" not in c["name"] for c in choices)
+
+
+def test_voice_choices_covers_every_voice_key() -> None:
+    from backend.bridge import voice_choices
+    from pipeline.tts_engine import VOICES
+
+    assert {c["key"] for c in voice_choices()} == set(VOICES)
+
+
+# ---------------------------------------------------------------------------
 # voice_history
 # ---------------------------------------------------------------------------
 

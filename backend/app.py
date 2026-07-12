@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, current_app, jsonify, request
+from flask import Flask, Response, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
 from backend import bridge, dialogs
@@ -32,7 +32,13 @@ from pipeline.batch_runner import STATUS_ERROR, BatchRunner
 from pipeline.config import SettingsRepository
 from pipeline.input_validation import DEFAULT_MAX_FILES
 from pipeline.state_manager import StateRepository
-from pipeline.tts_engine import TTSEngine, TTSEngineLike
+from pipeline.tts_engine import (
+    VOICES,
+    TTSEngine,
+    TTSEngineLike,
+    ensure_voice_samples,
+    installed_kokoro_version,
+)
 
 # A route handler may return either a bare JSON Response or a
 # (Response, status_code) tuple -- Flask's own accepted return shape.
@@ -263,6 +269,34 @@ def create_app(
         )
         return jsonify({"path": path})
 
+    def _open_folder_response(path: str | None) -> Response:
+        opened = dialogs.open_folder(path) if path else False
+        if not opened:
+            return jsonify({"ok": False, "error": "That folder couldn't be found."})
+        return jsonify({"ok": True})
+
+    @app.post("/api/books/<book_id>/open-folder")
+    def open_book_folder_route(book_id: str) -> Response:
+        """ "📂 See the audiobook files" (03-gui-ux-design.md §Screen:
+        Review) -- opens *this book's own* subfolder, resolved
+        server-side from its already-tracked `output_audio_folder`
+        rather than trusting a client-supplied path. No file path is
+        ever sent to or from the browser for this
+        (03-gui-ux-design.md's own "What is explicitly NOT exposed to
+        her" rule -- "any file paths other than the two folders she
+        picked")."""
+        book = next(
+            (b for b in _state().runner.snapshot() if b.book_id == book_id), None
+        )
+        path = book.data.get("output_audio_folder") if book else None
+        return _open_folder_response(path)
+
+    @app.post("/api/open-output-folder")
+    def open_output_folder_route() -> Response:
+        """ "📂 See all my finished books" -- her remembered
+        `output_folder`, same path-hiding reasoning as above."""
+        return _open_folder_response(_state().settings.get("output_folder"))
+
     # ------------------------------------------------------------------
     # Screen 1: Add Books
     # ------------------------------------------------------------------
@@ -280,7 +314,7 @@ def create_app(
                     continue
                 temp_path = _safe_upload_path(tmp_dir, i, f.filename)
                 f.save(temp_path)
-                result = runner.add_book(temp_path)
+                result = runner.add_book(temp_path, original_filename=f.filename)
                 results.append(
                     {
                         "ok": result.ok,
@@ -359,6 +393,54 @@ def create_app(
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 409
         return jsonify({"ok": True, "voice": updated.data.get("voice")})
+
+    @app.post("/api/books/<book_id>/metadata")
+    def update_metadata_route(book_id: str) -> RouteResult:
+        """The multi-book voice table's clickable book title
+        (03-gui-ux-design.md §Voice assignment) -- corrects title/author/
+        series while a book sits at `voice_pick`, distinct from the
+        identification loop's `confirm` route above (which only accepts
+        a book still awaiting confirmation) and from `retag` below
+        (which rewrites already-generated files on disk)."""
+        body = request.get_json(silent=True) or {}
+        corrections = body.get("corrections") or {}
+        try:
+            updated = _state().runner.update_metadata(book_id, corrections)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        return jsonify({"ok": True, "status": updated.status})
+
+    # ------------------------------------------------------------------
+    # Voice picker (03-gui-ux-design.md §Voice assignment) -- Epic 8
+    # addition; see bridge.py::voice_choices() docstring. GET /api/voices
+    # is also this app's chosen trigger point for the lazy voice-sample
+    # cache build (opening the voice picker, per 04-tts-engine.md's
+    # "a real audio-stage run, or her opening the voice picker" -- the
+    # first call after a `kokoro` upgrade blocks on regenerating all 28
+    # samples; every call after that is a cheap version-tag check).
+    # ------------------------------------------------------------------
+
+    @app.get("/api/voices")
+    def voices_route() -> Response:
+        state = _state()
+        ensure_voice_samples(
+            state.appdata_dir / "voice_samples",
+            state.tts_engine,
+            installed_kokoro_version(),
+        )
+        return jsonify({"voices": bridge.voice_choices()})
+
+    @app.get("/api/voice-samples/<voice>")
+    def voice_sample_route(voice: str) -> RouteResult:
+        if voice not in VOICES:
+            return jsonify({"ok": False, "error": "Unknown voice."}), 404
+        sample_path = _state().appdata_dir / "voice_samples" / f"{voice}.mp3"
+        if not sample_path.exists():
+            return (
+                jsonify({"ok": False, "error": "Voice sample not available yet."}),
+                404,
+            )
+        return send_file(sample_path, mimetype="audio/mpeg")
 
     # ------------------------------------------------------------------
     # Pause / Cancel

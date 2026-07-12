@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–6 complete. Epic 7+ not started.
+**Status:** Epics 0–8 complete. Epic 9+ not started.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -302,51 +302,96 @@ checklist item and `frontend/README.md`.
 
 ---
 
-## Epic 7 — Frontend Scaffolding
+## Epic 7 — Frontend Scaffolding ✅ Complete (2026-07-11, combined with Epic 8)
 
-- [ ] Vite + React setup (build-time only, no runtime Node/npm in the
-  packaged `.exe`)
-- [ ] **Dev-server proxy + Origin-header rewrite** so Vite's dev origin
+- [x] Vite + React setup (build-time only, no runtime Node/npm in the
+  packaged `.exe`) — React 19 + TypeScript, ESLint 9 (flat config,
+  swapped in for `create-vite`'s default oxlint so
+  `eslint-plugin-jsx-a11y` could be wired in), Vitest 4
+- [x] **Dev-server proxy + Origin-header rewrite** so Vite's dev origin
   doesn't trip `backend/app.py::_origin_is_allowed()`'s CSRF/Origin
-  check (added in the Epic 6 post-review fixes) — config and full
-  rationale already drafted in `frontend/README.md`. Fix stays entirely
-  on the frontend side; the backend check itself must not be relaxed,
-  since dev and prod share that code path.
-- [ ] API-client facade wrapping all `fetch` calls
-- [ ] `usePollingStatus()`, `useFocusTrap()`, `useAriaLiveThrottled()` hooks
-- [ ] `useReducer`-based local UI state
-- [ ] Container/Presentational split
-- [ ] Frontend CI job (Vitest + coverage, `axe-core`, `eslint-plugin-jsx-a11y`)
+  check (added in the Epic 6 post-review fixes) — implemented exactly
+  as drafted in `frontend/README.md`. Backend check itself unchanged.
+- [x] API-client facade wrapping all `fetch` calls — `frontend/src/api/
+  client.ts` + `types.ts`
+- [x] `usePollingStatus()`, `useFocusTrap()`, `useAriaLiveThrottled()` hooks
+- [x] `useReducer`-based local UI state — realized as `App.tsx`'s
+  phase/sub-view state (folders → AI helper → welcome-back → main,
+  plus which settings sub-screen or fix-it flow is open)
+- [x] Container/Presentational split — `App.tsx` owns
+  `usePollingStatus()`; every screen component receives plain props
+- [x] Frontend CI job (Vitest + coverage, `axe-core` via `vitest-axe`,
+  `eslint-plugin-jsx-a11y`) — `.github/workflows/ci.yml`
+
+**New this epic, not originally listed:** two new backend routes
+turned out to be required just to make the API-client facade complete
+against what Epic 8's screens would actually need —
+`GET /api/voices` (no route ever told the frontend what voice keys
+exist) and the voice-sample-playback endpoint. See Epic 8's own "New
+this epic" note for the rest; full reasoning in
+`CODEBASE_INDEX.md`'s Epic 7+8 session notes.
 
 ---
 
-## Epic 8 — GUI Screens
+## Epic 8 — GUI Screens ✅ Complete (2026-07-11, combined with Epic 7)
 
-Build in encounter order per `03-gui-ux-design.md`. Every screen must
-meet WCAG 2.1 AA alignment before being done.
+Built in encounter order per `03-gui-ux-design.md`. Every screen meets
+WCAG 2.1 AA alignment (axe-core assertions in each screen's own test
+file, plus manual review) before being marked done here — the
+**manual** keyboard-only/NVDA/dyslexic-reader passes remain Epic 9's
+own separate, not-yet-done checklist, per `09-testing-strategy.md`'s
+explicit split between automated (done, CI-enforced) and manual
+(best-effort, not yet scheduled) verification.
 
-- [ ] First-launch setup (folder pickers)
-- [ ] AI Helper Setup (provider choice, key entry, masked display)
-- [ ] "Welcome back" screen (state-file driven)
-- [ ] Screen 1: Add Books (drag-and-drop + button, per-book Remove,
-  stage toggles). Includes displaying the `MAX_FILES`-exceeded
-  rejection message per file — the enforcement + friendly message are
-  already built server-side (Epic 6, `POST /api/books`'s per-file
-  `reason: "max_files_exceeded"`); this is purely wiring the UI to show
-  it, not new backend work (moved here from Epic 3).
-- [ ] Field Correction Popup (one shared component, reused everywhere)
-- [ ] Per-book identification loop
-- [ ] Voice assignment (single-book + multi-book table, shared
-  view-model hook). Decide whether the session-local same-series
-  default (moved here from Epic 4) is actually worth implementing once
-  this screen is real — `BatchRunner` currently gives every book the
-  same single global default regardless of series, which may turn out
-  to already satisfy `03-gui-ux-design.md`'s intent (see the Epic 4
-  entry's note on why that page's wording was ambiguous here).
-- [ ] Screen: Working (dynamic time estimate, Pause/Cancel, Quit for now)
-- [ ] Screen: Review (per-book link + output-folder link)
-- [ ] "No, let me fix it" flow (feeds `retag_stage.py`)
-- [ ] Settings: folders, word list, voice history (read-only)
+- [x] First-launch setup (folder pickers) — `FoldersScreen`, reused
+  identically for the later "⚙️ Change my folders" entry point
+- [x] AI Helper Setup (provider choice, key entry, masked display) —
+  `AiHelperSetup`, one component covering intro → choice → key
+- [x] "Welcome back" screen (state-file driven) — degrades honestly to
+  a plain count when the backend can't identify a pending book by
+  title (see its own module comment: full crash-resume `BatchRunner`
+  reconstruction is still separate, open work, unchanged from what
+  `CLAUDE.md` already flagged)
+- [x] Screen 1: Add Books (drag-and-drop + button, per-book Remove,
+  stage toggles, `MAX_FILES`-exceeded rejection message per file)
+- [x] Field Correction Popup (one shared component, reused by the
+  identification loop's confirm step, the voice table's title-edit
+  overlay, and the "No, let me fix it" step-through alike)
+- [x] Per-book identification loop — `ConfirmMetadataScreen`
+- [x] Voice assignment (single-book + multi-book table, shared
+  `useVoiceAssignmentView` hook). **Decided:** the session-local
+  same-series default is *not* reproduced client-side — the backend
+  only ever hands out one global default
+  (`_maybe_enter_voice_pick()`), and a second client-only notion of
+  "current default" that could silently disagree with the server was
+  judged worse than the marginal convenience. "Change Voice" already
+  covers giving specific books a different voice either way.
+- [x] Screen: Working (dynamic time estimate derived client-side from
+  observed chunks-per-second throughput this job, since the polling
+  contract carries no timestamps; Pause/Cancel with a confirmation +
+  keep-partial/discard choice; Quit for now)
+- [x] Screen: Review (per-book link + output-folder link, both via new
+  backend routes that resolve the path server-side — no raw filesystem
+  path ever crosses the wire)
+- [x] "No, let me fix it" flow (feeds `retag_stage.py` via `retagBook()`)
+- [x] Settings: folders, word list, voice history (read-only)
+
+**New this epic, not originally listed — all found by building the
+real frontend against the real backend, not pre-planned:**
+`POST /api/books/<id>/metadata` (the voice table's clickable-title
+edit needed its own mutation, since a book there has already passed
+`confirm_metadata` and `retag` only applies post-generation),
+`POST /api/books/<id>/open-folder` + `POST /api/open-output-folder`
+(browsers can't open a native Explorer window any more than a native
+folder-picker dialog — same ADR-0006 reasoning, `backend/dialogs.py::
+open_folder()`). **Two real pre-existing bugs found and fixed** (not
+new-code bugs): the GUI upload route's collision-avoiding temp
+filename was leaking into Screen 1's displayed filename
+(`BatchRunner.add_book()` gained a display-only `original_filename`
+override); `_maybe_enter_voice_pick()` was auto-starting single-book
+generation before the voice picker could ever matter, contradicting
+`assign_voice()`'s own docstring — both regression-tested. Full
+writeup: `CODEBASE_INDEX.md`'s Epic 7+8 session notes.
 
 ---
 
@@ -366,6 +411,19 @@ meet WCAG 2.1 AA alignment before being done.
 
 ## Epic 10 — Packaging & First-Run Experience
 
+- [ ] **Flask must gain a route serving `frontend/dist/`** (static files +
+  an `index.html` fallback for client-side routing) — confirmed missing
+  while closing out Epic 7/8: `backend/app.py` currently only registers
+  `/api/*` JSON routes, so `python launcher.py` alone opens a browser to
+  a `404`. Dev mode works today because Vite serves the frontend
+  directly on its own port and proxies `/api` through
+  (`frontend/vite.config.ts`) — that path never needed Flask to serve
+  anything but JSON. This is genuinely packaging-shaped work (locating
+  the bundled `dist/` at a frozen `.exe`'s runtime path, e.g.
+  `sys._MEIPASS`, is PyInstaller-specific), which is why it was left
+  here rather than pulled into Epic 7/8, but it blocks *any* single-
+  process/single-command way to see the GUI, not just the final `.exe`
+  — worth doing early in this epic, not saved for last.
 - [ ] Full PyInstaller build pipeline (`npm run build` → `dist/` → bundle)
 - [ ] SmartScreen mitigation: installer runs it once first + fallback
   HTML file
@@ -403,10 +461,10 @@ meet WCAG 2.1 AA alignment before being done.
 | Dependency version pinning | 0 — done |
 | Perchance vs. Kokoro output parity | 10 (moved from 4 — needs a real packaged `.exe` on real hardware) |
 | CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 10 (moved from 4, same reason) |
-| MAX_FILES-exceeded rejection message, Screen 1 UI | 8 (moved from 3 — backend enforcement done, Epic 6) |
-| Session-local same-series voice default | 8 (moved from 4 — `BatchRunner` exists, Epic 6, but only implements a single global default; decide if more is actually needed once this screen is real) |
+| MAX_FILES-exceeded rejection message, Screen 1 UI | 8 — done |
+| Session-local same-series voice default | 8 — **decided against** (moved from 4): the backend only ever hands out one global default; a second, client-only notion of "current default" risked silently disagreeing with the server for marginal convenience. "Change Voice" already covers the real need. See Epic 8's own checklist note. |
 | Her-facing copy wording, unassisted dry-run test | 9 |
 | Screen-reader tester confirmation | 9 |
-| Per-series voice memory, second look | 9 |
-| "Welcome back" full state-file-driven resume (rebuild a live `BatchRunner` after a backend restart) — `GET /api/welcome-back` detection-only endpoint already exists (Epic 6) | 8 |
-| Vite dev-server Origin/CSRF proxy config — frontend-side fix, backend check unchanged | 7 |
+| Per-series voice memory, second look | 9 (same decision as the session-local default above, revisit together if ever) |
+| "Welcome back" full state-file-driven resume (rebuild a live `BatchRunner` after a backend restart) | Still open — `GET /api/welcome-back` (Epic 6) plus the Epic 8 screen built against it both remain detection-only; `WelcomeBack.tsx` degrades honestly to a plain count rather than fabricating detail when this hasn't happened. No epic currently owns doing the reconstruction itself — flag before Epic 9's manual passes rely on a real multi-launch scenario. |
+| Vite dev-server Origin/CSRF proxy config | 7 — done |

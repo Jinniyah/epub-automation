@@ -32,6 +32,7 @@ from pipeline.batch_runner import (
     NeedsInputType,
 )
 from pipeline.stage import BookState
+from pipeline.tts_engine import VOICES
 
 
 class SnapshotSource(Protocol):
@@ -240,6 +241,26 @@ def build_status_response(runner: SnapshotSource) -> dict[str, Any]:
         "books": [_book_summary(b) for b in books],
         "error": error_payload,
     }
+
+
+# ---------------------------------------------------------------------------
+# Voice picker (03-gui-ux-design.md §Voice assignment) -- Epic 8 addition.
+# No route existed for this before this epic: `POST .../voice` already
+# took a voice key, but nothing ever told the frontend what keys exist.
+# ---------------------------------------------------------------------------
+
+
+def voice_choices() -> list[dict[str, str]]:
+    """Plain first-name-only voice list for the picker -- "Plain first
+    names only, no technical voice keys, no gender/accent/quality-grade
+    labels" (03-gui-ux-design.md §Voice assignment). `tts_engine.VOICES`'s
+    display strings carry that detail for internal/CLI use
+    (e.g. "Heart (Female, en-us)"); this strips it down to what she
+    actually sees.
+    """
+    return [
+        {"key": key, "name": label.split(" (", 1)[0]} for key, label in VOICES.items()
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ Epic 3 used for `DEFAULT_MAX_FILES` (pipeline/rename_stage.py).
 
 from __future__ import annotations
 
+import importlib.metadata
 import math
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
@@ -225,9 +226,24 @@ class TTSEngine:
         return self.generate(VOICE_SAMPLE_TEXT, voice)
 
 
+def installed_kokoro_version() -> str:
+    """Installed `kokoro` package version, read from package metadata only
+    -- never imports the `kokoro` module itself, so merely checking the
+    voice-sample cache's version tag can't trigger loading the ~300MB
+    model (keeps the lazy-download requirement above intact). Falls back
+    to a sentinel that will simply never match a cached version tag if
+    the package metadata can't be found (e.g. an unusual dev environment)
+    -- that just means the cache gets (re)generated once, not a crash.
+    """
+    try:
+        return importlib.metadata.version("kokoro")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def ensure_voice_samples(
     cache_dir: Path,
-    tts_engine: TTSEngine,
+    tts_engine: TTSEngineLike,
     kokoro_version: str,
     voices: Iterable[str] = VOICES,
 ) -> bool:
@@ -249,7 +265,7 @@ def ensure_voice_samples(
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         for voice in voices:
-            sample_bytes = tts_engine.generate_voice_sample(voice)
+            sample_bytes = tts_engine.generate(VOICE_SAMPLE_TEXT, voice)
             (cache_dir / f"{voice}.mp3").write_bytes(sample_bytes)
         version_path.write_text(kokoro_version)
         return True

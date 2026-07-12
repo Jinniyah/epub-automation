@@ -59,6 +59,21 @@ def client(tmp_path: Path) -> FlaskClient:
     return app.test_client()
 
 
+@pytest.fixture(autouse=True)
+def _never_opens_a_real_explorer_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`dialogs.open_folder()` defaults to `os.startfile()` -- monkeypatched
+    here for every test in this module, the same way `dialogs.pick_folder`
+    already is, so running this suite never pops a real File Explorer
+    window. Mirrors the real function's own exists-check so the
+    ok:true/false assertions in the open-folder tests below still mean
+    something."""
+    monkeypatch.setattr(
+        dialogs_module,
+        "open_folder",
+        lambda path, **kwargs: bool(path) and Path(path).is_dir(),
+    )
+
+
 def _add_book_via_api(
     client: FlaskClient, *, filename: str = "book.epub", **epub_kwargs: Any
 ) -> dict[str, Any]:
@@ -225,6 +240,56 @@ def test_pick_folder_route_returns_none_when_cancelled(
     assert resp.get_json() == {"path": None}
 
 
+def test_open_output_folder_route_opens_her_remembered_output_folder(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    client.post("/api/settings", json={"output_folder": str(tmp_path)})
+
+    resp = client.post("/api/open-output-folder")
+
+    assert resp.get_json() == {"ok": True}
+
+
+def test_open_output_folder_route_degrades_gracefully_when_missing(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    client.post("/api/settings", json={"output_folder": str(tmp_path / "gone")})
+
+    resp = client.post("/api/open-output-folder")
+
+    assert resp.get_json()["ok"] is False
+
+
+def test_open_book_folder_route_opens_that_books_own_subfolder(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    added = _add_book_via_api(client)
+    book_id = added["book_id"]
+    client.post("/api/batch/start")
+    _wait_for_state(client, lambda s: s["needs_input"] is not None)
+    client.post(f"/api/books/{book_id}/confirm", json={})
+    _wait_for_state(client, lambda s: s["state"] == "voice_pick")
+    client.post(f"/api/books/{book_id}/voice", json={"voice": "af_heart"})
+    status = _wait_for_state(
+        client,
+        lambda s: s["needs_input"] is not None
+        and s["needs_input"]["type"] == NeedsInputType.REVIEW_RESULT,
+    )
+    assert status["state"] == "review"
+
+    resp = client.post(f"/api/books/{book_id}/open-folder")
+
+    assert resp.get_json() == {"ok": True}
+
+
+def test_open_book_folder_route_degrades_gracefully_for_an_unknown_book(
+    client: FlaskClient,
+) -> None:
+    resp = client.post("/api/books/does-not-exist/open-folder")
+
+    assert resp.get_json()["ok"] is False
+
+
 # ---------------------------------------------------------------------------
 # _safe_upload_path -- the path-traversal fix, tested directly
 # ---------------------------------------------------------------------------
@@ -263,6 +328,23 @@ def test_add_book_accepts_a_valid_epub(client: FlaskClient) -> None:
 
     assert result["book_id"]
     assert result["original_filename"] == "book.epub"
+
+
+def test_add_book_status_poll_shows_the_true_filename_not_the_temp_upload_name(
+    client: FlaskClient,
+) -> None:
+    """Regression test: `/api/status`'s `original_filename` must be her
+    real filename, not the `<index>_<name>` collision-avoiding name
+    `_safe_upload_path()` gives the temp file the upload is briefly
+    saved as -- a real bug found via a live browser smoke test (the
+    upload response's own `original_filename` was always correct, which
+    is why this specific gap wasn't caught by
+    `test_add_book_accepts_a_valid_epub` above)."""
+    _add_book_via_api(client, filename="Fated.epub")
+
+    status = _poll_status(client)
+
+    assert status["books"][0]["original_filename"] == "Fated.epub"
 
 
 def test_add_book_rejects_a_non_epub_file(client: FlaskClient) -> None:
@@ -353,6 +435,10 @@ def test_full_single_book_flow_reaches_review_then_complete(
     resp = client.post(f"/api/books/{book_id}/confirm", json={})
     assert resp.get_json()["ok"] is True
 
+    _wait_for_state(client, lambda s: s["state"] == "voice_pick")
+    resp = client.post(f"/api/books/{book_id}/voice", json={"voice": "af_heart"})
+    assert resp.get_json()["ok"] is True
+
     status = _wait_for_state(
         client,
         lambda s: s["needs_input"] is not None
@@ -389,6 +475,40 @@ def test_assign_voice_on_a_book_not_at_voice_pick_returns_409(
 
     resp = client.post(
         f"/api/books/{added['book_id']}/voice", json={"voice": "af_heart"}
+    )
+
+    assert resp.status_code == 409
+
+
+def test_update_metadata_route_patches_a_book_at_voice_pick(
+    client: FlaskClient,
+) -> None:
+    added = _add_book_via_api(client)
+    client.post("/api/batch/start")
+    _wait_for_state(client, lambda s: s["needs_input"] is not None)
+    client.post(f"/api/books/{added['book_id']}/confirm", json={})
+    _wait_for_state(
+        client, lambda s: all(b["status"] == "voice_pick" for b in s["books"])
+    )
+
+    resp = client.post(
+        f"/api/books/{added['book_id']}/metadata",
+        json={"corrections": {"title": "Corrected Title"}},
+    )
+
+    assert resp.get_json() == {"ok": True, "status": "voice_pick"}
+    status = _poll_status(client)
+    assert status["books"][0]["title"] == "Corrected Title"
+
+
+def test_update_metadata_route_on_a_book_not_at_voice_pick_returns_409(
+    client: FlaskClient,
+) -> None:
+    added = _add_book_via_api(client)
+
+    resp = client.post(
+        f"/api/books/{added['book_id']}/metadata",
+        json={"corrections": {"title": "New"}},
     )
 
     assert resp.status_code == 409
@@ -432,6 +552,8 @@ def test_retag_route_applies_overrides_after_review_no(client: FlaskClient) -> N
     client.post("/api/batch/start")
     _wait_for_state(client, lambda s: s["needs_input"] is not None)
     client.post(f"/api/books/{book_id}/confirm", json={})
+    _wait_for_state(client, lambda s: s["state"] == "voice_pick")
+    client.post(f"/api/books/{book_id}/voice", json={"voice": "af_heart"})
     _wait_for_state(
         client,
         lambda s: s["needs_input"] is not None
@@ -489,6 +611,8 @@ def test_adding_a_book_after_a_batch_is_done_starts_a_fresh_batch(
     client.post("/api/batch/start")
     _wait_for_state(client, lambda s: s["needs_input"] is not None)
     client.post(f"/api/books/{first['book_id']}/confirm", json={})
+    _wait_for_state(client, lambda s: s["state"] == "voice_pick")
+    client.post(f"/api/books/{first['book_id']}/voice", json={"voice": "af_heart"})
     _wait_for_state(
         client,
         lambda s: s["needs_input"] is not None
@@ -557,6 +681,51 @@ def test_voice_history_route_degrades_gracefully_when_log_unreadable(
 
     assert resp.status_code == 500
     assert resp.get_json()["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# Voice picker (03-gui-ux-design.md §Voice assignment)
+# ---------------------------------------------------------------------------
+
+
+def test_voices_route_returns_plain_first_names(client: FlaskClient) -> None:
+    resp = client.get("/api/voices")
+
+    body = resp.get_json()
+    assert {"key": "af_heart", "name": "Heart"} in body["voices"]
+    assert all("(" not in v["name"] for v in body["voices"])
+
+
+def test_voices_route_builds_the_sample_cache(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    client.get("/api/voices")
+
+    assert (tmp_path / "voice_samples" / "af_heart.mp3").exists()
+    assert (tmp_path / "voice_samples" / "version.txt").exists()
+
+
+def test_voice_sample_route_serves_a_cached_sample(client: FlaskClient) -> None:
+    client.get("/api/voices")  # populates the cache first
+
+    resp = client.get("/api/voice-samples/af_heart")
+
+    assert resp.status_code == 200
+    assert resp.mimetype == "audio/mpeg"
+
+
+def test_voice_sample_route_404s_for_an_unknown_voice(client: FlaskClient) -> None:
+    resp = client.get("/api/voice-samples/not_a_real_voice")
+
+    assert resp.status_code == 404
+
+
+def test_voice_sample_route_404s_before_the_cache_is_built(
+    client: FlaskClient,
+) -> None:
+    resp = client.get("/api/voice-samples/af_heart")
+
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
