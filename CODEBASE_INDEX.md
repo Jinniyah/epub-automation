@@ -11,7 +11,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | `backend/app.py` | Real (Epic 6, extended Epic 8). Full JSON API route set — status polling, settings, folder picker, add/remove books (multipart upload), disk-space, batch start/start-generation, per-book confirm/voice/pause/cancel/collision/review/retag, voice-history, support-bundle, welcome-back (detection only, see below), quit. **Epic 8 additions**, all found genuinely missing while building the real frontend against this contract, not pre-planned: `GET /api/voices` + `GET /api/voice-samples/<voice>` (voice picker list + preview playback; the former is also this app's lazy voice-sample-cache trigger point), `POST /api/books/<id>/metadata` (multi-book voice table's clickable-title metadata edit, distinct from `confirm` and `retag`), `POST /api/books/<id>/open-folder` + `POST /api/open-output-folder` (Review screen's two "📂 See..." links — no raw filesystem path ever crosses the wire, both resolved server-side). One `BatchRunner` per app instance; auto-replaced with a fresh one once `done` (`_current_runner()`). | Epic 0 / Epic 6 / Epic 8 |
 | `backend/dialogs.py` | Real (Epic 6, extended Epic 8). `pick_folder()` via `tkinter.filedialog.askdirectory()`; `tk_factory`/`ask_directory` injectable seams so tests never open a real Tk window. Epic 8 added `open_folder()` (`os.startfile`, Windows-only) for the same two Review-screen links above — **`tests/test_app.py` monkeypatches this globally (autouse fixture)**, same as `pick_folder`, after an early Epic 8 session accidentally popped real Explorer windows during a full local test run before that fixture existed. | Epic 6 / Epic 8 |
 | `backend/bridge.py` | Real (Epic 6, extended Epic 8). `derive_batch_state()` — pure State Machine function, unit-tested independent of HTTP; one **documented deviation** from the literal precedence-rule text (see its own docstring) to correctly bucket the `review_result`/`output_collision` `needs_input` types this epic added. `build_status_response()`, `voice_history()`, `build_support_bundle()`/`write_support_bundle()` (secrets always stripped). Epic 8 added `voice_choices()` — strips `tts_engine.VOICES`' display strings down to plain first names for the picker. | Epic 6 / Epic 8 |
-| `pipeline/batch_runner.py` | Real (Epic 6, extended Epic 8). `BatchRunner` — the stateful, interactive engine behind the GUI's polling contract: add/remove books (reuses `input_validation.py`), rename→sanitize identification loop (needs_input pauses never block the background thread), per-book/per-batch voice assignment, serial audio generation (ADR-0009) with Pause/Cancel via `AudioStage`'s new Observer hooks, output-collision handling (`NeedsInputType.OUTPUT_COLLISION`), manually-triggered retag (operates on the **output-folder copy**, not the internal Library copy ADR-0017 deletes), ADR-0017 cleanup. Keeps `state.json` genuinely current stage-by-stage, specifically ordered so a fast client can never race ahead of a stage's own persistence (see `_finish_generation`'s comment). **Epic 8 additions:** `add_book()` gained an `original_filename` override (a real bug found via a live browser smoke test — the GUI upload route's collision-avoiding temp filename, e.g. `0_Fated.epub`, was leaking into what Screen 1 displayed; the safe temp name is still what the internal `00-Incoming/` copy uses, only the *display* value changed); `update_metadata()` (the voice table's clickable-title edit, restricted to `voice_pick`); and a real bug fix in `_maybe_enter_voice_pick()` — it used to also trigger the single-book auto-start-generation the instant a book reached `voice_pick`, before the picker screen could ever matter, contradicting `assign_voice()`'s own docstring ("picking a voice and pressing Next starts generating"). Both were found while building/live-testing the real Epic 8 voice-picker screen against this existing Epic 6 code, not by the pre-existing unit suite. | Epic 6 / Epic 8 |
+| `pipeline/batch_runner.py` | Real (Epic 6, extended Epic 8). `BatchRunner` — the stateful, interactive engine behind the GUI's polling contract: add/remove books (reuses `input_validation.py`), rename→sanitize identification loop (needs_input pauses never block the background thread), per-book/per-batch voice assignment, serial audio generation (ADR-0009) with Pause/Cancel via `AudioStage`'s new Observer hooks, output-collision handling (`NeedsInputType.OUTPUT_COLLISION`), manually-triggered retag (operates on the **output-folder copy**, not the internal Library copy ADR-0017 deletes), ADR-0017 cleanup. Keeps `state.json` genuinely current stage-by-stage, specifically ordered so a fast client can never race ahead of a stage's own persistence (see `_finish_generation`'s comment). **Epic 8 additions:** `add_book()` gained an `original_filename` override (a real bug found via a live browser smoke test — the GUI upload route's collision-avoiding temp filename, e.g. `0_Fated.epub`, was leaking into what Screen 1 displayed; the safe temp name is still what the internal `00-Incoming/` copy uses, only the *display* value changed); `update_metadata()` (the voice table's clickable-title edit, restricted to `voice_pick`); and a real bug fix in `_maybe_enter_voice_pick()` — it used to also trigger the single-book auto-start-generation the instant a book reached `voice_pick`, before the picker screen could ever matter, contradicting `assign_voice()`'s own docstring ("picking a voice and pressing Next starts generating"). Both were found while building/live-testing the real Epic 8 voice-picker screen against this existing Epic 6 code, not by the pre-existing unit suite. **Note (2026-07-17, confirmed while investigating a Pause/Cancel feedback report):** this file's pause/cancel/resume logic itself was already correct — `request_pause()`/`request_cancel()` just set flags, `AudioStage`'s `should_stop` hook applies them at the next chunk boundary, and `start_generation()` already resumes any `paused` book by re-queueing it as `voice_pick` (see that method's own docstring). No backend change was needed; the real gap was frontend-only (see Session notes below). | Epic 6 / Epic 8 |
 | `pipeline/cli_runner.py` | Real (Epic 6). `discover_books()`/`run_stage_over_folder()` — the CLI's much simpler, non-interactive counterpart to `BatchRunner` (no `needs_input`, no UI to answer one). | Epic 6 |
 | `pipeline/input_validation.py` | Real (Epic 6). Screen-1 file validation — extension, real-zip validity (reuses `SafeZipOperation`), DRM detection (`META-INF/encryption.xml`), `MAX_FILES` capacity check. | Epic 6 |
 | `pipeline/disk_space.py` | Real (Epic 6). Pre-batch disk-space estimate/check — composes `tts_engine.estimate_audio_bytes()` with the copy-based-storage formula and a real `shutil.disk_usage()` check. | Epic 6 |
@@ -32,8 +32,9 @@ File map + migration/schema table. Kept current as epics land real code.
 | `pipeline/epub_reader.py` | Real (Epic 3, extended Epic 4). `extract_epub_metadata`/`extract_text_sample` ported verbatim from `epub-renamer/epub_reader.py`; `extract_cover_bytes()` (Epic 4) ported verbatim from `epub-to-audio\epub_utils.py`, 3-strategy fallback, used for ID3 cover art. | Epic 3/4 |
 | `pipeline/epub_utils.py` | Real (Epic 3, extended Epic 4). `sanitize_filesystem_name()` (ADR-0016) — new shared utility, used by rename, audio (Epic 4), and retag (Epic 5). `extract_chapters()`/`chunk_text()`/`normalise_heading()`/`MAX_CHUNK_CHARS` (Epic 4) ported verbatim from `epub-to-audio\epub_utils.py`. | Epic 3/4/5 |
 | `pipeline/ai_providers/` | Real (Epic 3). `base.py`/`null_provider.py`/`openai_provider.py`/`registry.py` ported from `epub-renamer` (constructors adapted to take `api_key` explicitly, per ADR-0003); `gemini_provider.py` new, uses the `google-genai` SDK. | Epic 3 |
-| `frontend/` | Real (Epic 7/8). Vite + React 19 + TypeScript, built with `npm create vite@latest -- --template react-ts` then reworked: **oxlint replaced with ESLint 9** (flat config, `eslint-plugin-jsx-a11y` + `eslint-plugin-react-hooks` — pinned to the classic 5.x line, not the newer React-Compiler-flavored 7.x, since this project doesn't use the Compiler and several of its rules assume it) so `eslint-plugin-jsx-a11y` could be wired in at all. `src/api/` (`client.ts`/`types.ts`) is the one module that knows the Flask JSON API's shapes; `src/hooks/` (`usePollingStatus`, `useFocusTrap`, `useAriaLiveThrottled`); `src/components/shared/` (`BigButton`, `RadioRow`, `ToggleSwitch`, `EditableFieldRow`, `Overlay`, `FieldCorrectionPopup`, `VoicePicker`, `LiveRegion`); `src/viewmodels/` (`useVoiceAssignmentView`, `useWorkingScreenView`); `src/screens/` (one file per screen in `03-gui-ux-design.md`'s encounter order); `src/App.tsx` (the one top-level container — owns onboarding-phase routing + the single `usePollingStatus()` every screen is built from). 331 tests, coverage comfortably above the 80% floor. `vite.config.ts` implements the dev-proxy/Origin-rewrite this directory's own `README.md` already specified. | Epic 7/8 |
-| `frontend/src/screens/*.tsx` | Real (Epic 8). `FoldersScreen` (first-launch + "⚙️ Change my folders", same component), `AiHelperSetup` (intro→choice→key, one component covering all three steps), `WelcomeBack` (degrades honestly to a plain count if the backend can't identify a pending book — see its own module comment on why: full crash-resume `BatchRunner` reconstruction is still open, see below), `AddBooksScreen`, `ConfirmMetadataScreen` (also reused inside an `Overlay` from the voice table, `asOverlay` prop), `VoiceAssignmentScreen`, `WorkingScreen`, `CollisionPrompt`, `ReviewScreen`, `FixInfoFlow`, `WordsScreen`, `VoiceHistoryScreen`, `ErrorScreen`. All wired together in `App.tsx`. | Epic 8 |
+| `frontend/` | Real (Epic 7/8). Vite + React 19 + TypeScript, built with `npm create vite@latest -- --template react-ts` then reworked: **oxlint replaced with ESLint 9** (flat config, `eslint-plugin-jsx-a11y` + `eslint-plugin-react-hooks` — pinned to the classic 5.x line, not the newer React-Compiler-flavored 7.x, since this project doesn't use the Compiler and several of its rules assume it) so `eslint-plugin-jsx-a11y` could be wired in at all. `src/api/` (`client.ts`/`types.ts`) is the one module that knows the Flask JSON API's shapes; `src/hooks/` (`usePollingStatus`, `useFocusTrap`, `useAriaLiveThrottled`); `src/components/shared/` (`BigButton`, `RadioRow`, `ToggleSwitch`, `EditableFieldRow`, `Overlay`, `FieldCorrectionPopup`, `VoicePicker`, `LiveRegion`); `src/viewmodels/` (`useVoiceAssignmentView`, `useWorkingScreenView`); `src/screens/` (one file per screen in `03-gui-ux-design.md`'s encounter order); `src/App.tsx` (the one top-level container — owns onboarding-phase routing + the single `usePollingStatus()` every screen is built from). **199 tests across 31 files** (confirmed via a real `npm test` run 2026-07-17 -- corrects an earlier "331 tests" figure carried here since Epic 7/8, which was simply wrong), coverage comfortably above the 80% floor. `vite.config.ts` implements the dev-proxy/Origin-rewrite this directory's own `README.md` already specified. `index.css`'s spacing-utility family (`main > * + *`, `.stack-sm`, and now `.stack`/`.stack-md`, 2026-07-17) is the one place vertical rhythm is controlled app-wide — see that file's own comments before adding a new one-off margin anywhere. **Recurring nesting-depth gotcha, worth checking for elsewhere:** any component that renders its own single wrapping element (rather than being a direct child of `main`/`.overlay`) loses that ancestor's `> * + *` spacing rule for its *own* children, one level too deep to be reached — this bit both `VoicePicker` (heading/list, `main`'s rule) and `ConfirmMetadataScreen`'s `asOverlay` mode (field-list/Save button, `.overlay`'s rule), fixed the same way both times with a `.stack`/`.stack-md` wrapper scoped to just the affected pair (2026-07-17, see Session notes below). Also gained `.progress-bar` (2026-07-17) -- a native `<progress>` element styled via vendor pseudo-elements rather than a `<div>` with inline `width`, since the latter would need the `style` prop this same stylesheet's own ESLint rule forbids. | Epic 7/8 |
+| `frontend/src/screens/*.tsx` | Real (Epic 8). `FoldersScreen` (first-launch + "⚙️ Change my folders", same component), `AiHelperSetup` (intro→choice→key, one component covering all three steps), `WelcomeBack` (degrades honestly to a plain count if the backend can't identify a pending book — see its own module comment on why: full crash-resume `BatchRunner` reconstruction is still open, see below), `AddBooksScreen`, `ConfirmMetadataScreen` (also reused inside an `Overlay` from the voice table, `asOverlay` prop — **overlay-mode spacing fixed 2026-07-17**, see that file's own docstring and Session notes below), `VoiceAssignmentScreen`, `WorkingScreen` (Pause/Cancel/Resume feedback and the chunk-progress readout both added and verified 2026-07-17, see Session notes), `CollisionPrompt`, `ReviewScreen`, `FixInfoFlow`, `WordsScreen`, `VoiceHistoryScreen`, `ErrorScreen`. All wired together in `App.tsx`. | Epic 8 |
+| `frontend/src/components/shared/VoicePicker.tsx` | Real (Epic 8). Full voice-picker list, used standalone (single-book) and inside an `Overlay` ("Change Voice"). **Spacing fixed 2026-07-17** (real screenshot + follow-up request) — heading-to-list and inter-row gaps were both zero; see that file's own docstring and Session notes below for the fix and the deliberate decision to leave the 70px row-height accessibility floor unchanged. | Epic 8 |
 | `frontend/src/**/*.test.{ts,tsx}` | Real (Epic 7/8), co-located with the code they test. Vitest + React Testing Library + `vitest-axe` (axe-core assertions in nearly every component/screen test — needed a hand-written local `declare module "vitest"` augmentation in `src/test/vitest-axe.d.ts`, since `vitest-axe@0.1.0`'s own shipped types target an older `Vi.Assertion` global-namespace convention vitest 4.x no longer reads). | Epic 7/8 |
 | `tests/test_sanitize_stage.py` | 29 adversarial tests, all 10 controls. | Epic 2 |
 | `tests/test_rename_stage.py`, `test_ai_providers.py`, `test_openai_provider.py`, `test_gemini_provider.py`, `test_epub_reader.py`, `test_epub_utils.py` | Epic 3 test suite (`test_epub_reader.py`/`test_epub_utils.py` extended Epic 4 — see below): `build_filename`/`FILENAME_PATTERN`/`RenameStage` (happy path, already-normalized, dry-run, name-conflict, AI failure fallback, corrupted EPUB), provider base/registry/Null/OpenAI/Gemini, `sanitize_filesystem_name` (incl. idempotency). | Epic 3 |
@@ -64,12 +65,157 @@ keyed by old version, add a row here.
 
 ## Session notes
 
+**Frontend test-count correction (2026-07-17):** a real `npm test` run
+reported **199 tests across 31 files**, all passing. This corrects the
+"331 frontend tests" figure that had been carried in this file (and in
+`README.md`/`CLAUDE.md`) since the original Epic 7+8 session note
+below -- since no tests were ever removed between then and now, only
+added, the true count was always lower than 331; that original figure
+was simply wrong, not stale. Fixed at every mention across the three
+docs.
+
+**2026-07-17 second verification pass:** a real `npm run build`,
+`npm run lint`, and `npm test` all passed clean against the
+Working-screen chunk-progress readout (below), reported directly by
+the user in a second, separate pass run right after the four-fix
+batch further below was already confirmed. Not run in this session
+(filesystem-only MCP access throughout).
+
+**Working-screen chunk-progress readout (2026-07-17, real follow-up
+request, verified in the second pass above):** closes
+docs/BACKLOG.md Epic 8.5's own "visible chunk-progress readout" item,
+specifically asking for "Working on file N of M..." updating live in
+the blank space between the friendly status line and the Pause/Cancel
+buttons -- `progress.chunks_done`/`chunks_total` were already in every
+poll response, just never surfaced. Added the text line (N =
+`chunks_done + 1` capped at the total -- the chunk currently in
+flight) plus a real progress bar underneath, inside the existing
+`.card`. **Used a native `<progress>` element, not a styled `<div>`:**
+a hand-rolled fill bar needs a dynamic inline `width`, which the
+app-wide `style`-prop ban (Epic 8.6, `frontend/eslint.config.js`)
+forbids -- `<progress value max>` lets the browser own the fill
+percentage and ships with `role="progressbar"`/`aria-valuenow`
+semantics for free, styled via `::-webkit-progress-bar`/
+`::-webkit-progress-value`/`::-moz-progress-bar` in `index.css` (new
+`.progress-bar` class) instead. Shown regardless of pause state -- a
+paused book's last-known chunk position is still useful context.
+`WorkingScreen.test.tsx` extended with readout-text, bar value/max,
+cap-at-total, no-progress-yet, and paused-still-shows-progress
+coverage. Full writeup: `docs/BACKLOG.md` Epic 8.5's own checklist
+item.
+
+**2026-07-17 frontend-fix batch, verified:** a real `npm run build`,
+`npm run lint`, and `npm test` all passed clean against the four
+2026-07-17 frontend fixes together (Working-screen Pause/Cancel/
+Resume feedback, VoicePicker heading/row spacing, the "Fix info"
+overlay spacing fix, and the earlier `.screen-actions` DOM-ordering
+fix) -- reported directly by the user, not run in this session
+(filesystem-only MCP access throughout). The four session notes below
+retain their original "not yet verified" wording as written at the
+time; this note is the confirmation that landed after.
+
+**"Fix info" overlay spacing fix (2026-07-17, real screenshot):**
+same underlying bug class as the VoicePicker spacing fix immediately
+below, one level deeper. `ConfirmMetadataScreen`'s `asOverlay` mode
+renders as a single wrapping `<div>` -- the sole `children` `Overlay`
+receives -- so `.overlay`'s own `> * + *` rhythm (index.css, space-4)
+correctly spaces `Overlay`'s `<h2>` title against that div, but the
+field list and Save button are *that div's own* two children, one
+level too deep for the same selector to reach: zero gap, "Series
+Number" touching "Save." Fixed by wrapping the field list + Save
+button in `.stack` for `asOverlay` mode only (the same utility the
+VoicePicker fix introduced). **Deliberately not fixed by flattening
+this component's wrapper into a `Fragment`** (letting `.overlay`'s own
+rule reach the two elements directly, the more obvious-looking fix):
+the conditionally-rendered `FieldCorrectionPopup` blocks further down
+in the same component are themselves full `Overlay`s
+(`position: fixed` backdrop) -- flattening would make one a DOM
+sibling of the field list/button at the same level, and
+`.overlay > * + *` would then apply an unwanted `margin-top` to that
+fixed-position backdrop, visibly shifting the popup-on-a-popup down
+from the screen edge it needs to fully cover. `ConfirmMetadataScreen.
+test.tsx` needed no changes (queries by role/text). Full writeup:
+`docs/BACKLOG.md` Epic 8.5's own checklist item.
+
+**VoicePicker spacing fix (2026-07-17, real screenshot + follow-up
+request):** the heading and the voice list sat directly adjacent with
+zero gap -- `VoicePicker` renders its own wrapping `<div>`, which is
+`main`'s single child in the single-book screen, so the app-wide
+`main > * + *` section rhythm (space-5) never reached the heading/list
+inside it (that selector only matches *direct* children of `main`).
+Fixed with a new `.stack` utility (index.css, same space-5 rhythm as
+`main`'s own rule, usable on any container) applied narrowly to just
+the heading+list group -- not the whole component -- so the
+already-correct list-to-Next-button spacing (`.screen-actions`' own
+margin) doesn't get doubled. Follow-up request the same session: gaps
+between individual voice rows too (they read as one crowded block).
+Added a second new utility, `.stack-md` (space-3, deliberately between
+`.stack-sm`'s 8px and `.stack`'s 24px), to the radiogroup. **Row height
+deliberately left unchanged** despite the added scroll -- `.clickable-
+row`'s 70px `min-height` is the same accessibility floor shared by
+every clickable row app-wide (RA persona, `03-gui-ux-design.md`
+§General principles: Screen 1's toggles, AI Helper's choices, the
+voice picker), not incidental sizing; shrinking it to reclaim scroll
+space would trade away exactly the property this app is built around,
+for the same real-user population that asked for the spacing fix.
+Also worth noting for future reference: padding reduction wasn't a
+real lever here regardless -- `min-height` pads a short row back out to
+70px no matter its own padding, so a padding cut alone would not have
+reclaimed any vertical space even if shrinking height had been the
+right call. `VoicePicker.test.tsx` needed no changes (queries by role/
+text, not DOM structure or class names). Full writeup: `docs/
+BACKLOG.md` Epic 8.5's own checklist item.
+
+**Working-screen Pause/Cancel/Resume feedback (2026-07-17, real user
+report):** clicking Pause or Cancel appeared to do nothing. Investigated
+backend first (`pipeline/batch_runner.py`, `backend/app.py`) and
+confirmed the logic itself was already correct: `request_pause()`/
+`request_cancel()` just set flags, `AudioStage`'s `should_stop` hook
+applies them at the *next chunk boundary* (not instantly), and
+`start_generation()` already resumes a `paused` book by re-queueing it
+as `voice_pick` -- no new backend route needed for Resume. The entire
+gap was frontend: `WorkingScreen` never reflected a paused book's real
+status (no distinct UI, no Resume control, nothing disabled while a
+request was in flight), so a correctly-working action looked broken.
+Fixed entirely in `frontend/src/screens/WorkingScreen.tsx` +
+`frontend/src/index.css`'s new `.status-badge`/`.status-badge--amber` --
+a `paused` book now shows a "⏸️ Paused" badge and swaps Pause for a real
+"▶ Resume" button (calls the existing `startGeneration()`); Pause/
+Resume/Cancel each disable + relabel themselves ("Pausing…"/
+"Resuming…"/"Stopping…") from click until the book's real status
+confirms the change; confirming Cancel closes the popup immediately
+instead of waiting for the delayed actual cancellation. Deliberately
+did **not** add special-cased "go home after Cancel" logic -- once the
+cancelled book is the batch's last one, `derive_batch_state()` already
+flips to `done`, which `App.tsx` already routes back to Screen 1, so
+that's the existing state machine working as designed, not a new
+redirect; a multi-book batch correctly stays on Working, moving to the
+next active book instead. `WorkingScreen.test.tsx` extended with
+paused-state, in-flight-disabled-state (via a manually-resolved
+deferred promise per assertion), and axe-while-paused coverage. Full
+writeup: `docs/BACKLOG.md` Epic 8.5's own checklist item.
+
+**Post-Epic-8.6 bugfix (2026-07-17):** real screenshot showed
+`VoiceAssignmentScreen`'s single-book "✕ Remove this book" floating
+below the white card, on the page background. Root cause: Epic 8.6's
+`.screen-actions` sticky bar (index.css) bleeds to `main`'s edges and
+rounds its bottom corners so it reads as the card's own footer — it
+must stay the last DOM child of `main`, or later siblings render below
+the visually-closed-off card. `RemoveBookButton` was rendered *after*
+`VoicePicker` (whose own last child is that sticky bar) in single-book
+mode; fixed by moving it above the picker, grouped with the existing
+"Fix info" link. No CSS change, no test change (tests query by role/
+name). Full writeup: `docs/BACKLOG.md` Epic 8.6's own checklist.
+
 **Epic 7 + Epic 8 (2026-07-11, combined in one session on the user's
 explicit direction):** frontend scaffolding straight through every
 Epic 8 screen, rather than stopping at a placeholder — real screens
 gave the hooks/facade/patterns something genuine to prove themselves
-against instead of throwaway stand-ins. 331 frontend tests, backend
-grew from 390 to 413. Full detail in git history; the durable parts:
+against instead of throwaway stand-ins. Backend grew from 390 to 413
+tests; the frontend test count originally logged here ("331 tests")
+was corrected 2026-07-17 -- see the note at the top of this section,
+real count as of that date was 199 across 31 files. Full detail in
+git history; the durable parts:
 
 - **Tooling friction, not design friction:** `create-vite`'s current
   template ships oxlint, not ESLint — swapped for ESLint 9 (flat

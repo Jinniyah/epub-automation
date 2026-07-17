@@ -14,13 +14,20 @@ export interface AddBooksScreenProps {
    * rather than waiting for the next regular tick. */
   onChanged: () => void;
   onStart: () => void;
-  onOpenFolders: () => void;
-  onOpenWords: () => void;
-  onOpenAiHelper: () => void;
-  onOpenVoiceHistory: () => void;
+  /** Opens the "More options" hub (folders / words / AI helper / voice
+   * history) -- Screen 1 itself only owns one entry point into that
+   * group now, not four separate small links (see `MoreOptionsScreen`'s
+   * own docstring for why). Placed *after* Start in reading/tab order
+   * (see the button markup below) -- this is a rarely-used destination,
+   * not a step in her normal flow, so it shouldn't compete with Start
+   * for primacy. */
+  onOpenMore: () => void;
 }
 
 interface Rejection {
+  /** Stable per-render key, since two rejected files can share a
+   * filename -- index-based, not the filename itself. */
+  id: number;
   filename: string;
   message: string;
 }
@@ -37,10 +44,7 @@ export function AddBooksScreen({
   cleanLanguage,
   onChanged,
   onStart,
-  onOpenFolders,
-  onOpenWords,
-  onOpenAiHelper,
-  onOpenVoiceHistory,
+  onOpenMore,
 }: AddBooksScreenProps) {
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [diskSpace, setDiskSpace] = useState<DiskSpaceReport | null>(null);
@@ -66,7 +70,8 @@ export function AddBooksScreen({
     setRejections(
       response.results
         .filter((r) => !r.ok)
-        .map((r) => ({
+        .map((r, index) => ({
+          id: index,
           filename: r.original_filename,
           message: r.message ?? "That file couldn't be added.",
         })),
@@ -82,6 +87,17 @@ export function AddBooksScreen({
   async function handleRemove(bookId: string) {
     await removeBook(bookId);
     onChanged();
+  }
+
+  /** Purely client-side dismissal -- a rejected file never became a
+   * `Book` on the backend (it failed Screen 1's own validation before
+   * that), so there's nothing to call the API about. Without this,
+   * a damaged/rejected file's message had no way to go away at all
+   * short of adding a new batch of files, which silently replaced the
+   * whole rejections list -- confusing to land on with no visible
+   * "make this go away" control (real feedback, screenshot-driven). */
+  function handleDismissRejection(id: number) {
+    setRejections((current) => current.filter((r) => r.id !== id));
   }
 
   async function handleStart() {
@@ -125,8 +141,18 @@ export function AddBooksScreen({
         <LiveRegion politeness="assertive">
           <ul className="row-list">
             {rejections.map((r) => (
-              <li key={r.filename} className="row-list__item">
-                {r.filename}: {r.message}
+              <li key={r.id} className="row-list__item">
+                <span className="row-list__label">
+                  <span aria-hidden="true">⚠️</span> {r.filename}: {r.message}
+                </span>
+                <button
+                  type="button"
+                  className="link-button link-button--danger"
+                  aria-label={`Remove "${r.filename}" from this list`}
+                  onClick={() => handleDismissRejection(r.id)}
+                >
+                  ✕ Remove
+                </button>
               </li>
             ))}
           </ul>
@@ -182,27 +208,16 @@ export function AddBooksScreen({
         />
       </div>
 
-      <nav aria-label="More options" className="entry-points">
-        <button type="button" className="link-button" onClick={onOpenFolders}>
-          ⚙️ Change my folders
-        </button>
-        <button type="button" className="link-button" onClick={onOpenWords}>
-          🧼 Words to clean up
-        </button>
-        <button type="button" className="link-button" onClick={onOpenAiHelper}>
-          🤖 File name helper
-        </button>
-        <button type="button" className="link-button" onClick={onOpenVoiceHistory}>
-          🎙️ What voice did I use before?
-        </button>
-      </nav>
-
       <BigButton
         variant="primary"
         disabled={books.length === 0 || starting}
         onClick={() => void handleStart()}
       >
         Start
+      </BigButton>
+
+      <BigButton variant="plain" onClick={onOpenMore}>
+        ⚙️ More options
       </BigButton>
     </main>
   );

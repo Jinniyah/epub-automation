@@ -14,6 +14,12 @@ export interface ReviewScreenProps {
  * after its audio finishes. The book-scoped folder link sits above the
  * Yes/No question on purpose, so she can actually look at the real
  * chapter files before answering.
+ *
+ * **Visual design system (docs/BACKLOG.md Epic 8.6):** the
+ * Author/Title/Series block is its own `.card` -- a distinct "here's
+ * what this book is" section, separate from the folder link and the
+ * Yes/No decision below it. Yes/No sits in a `.screen-actions` sticky
+ * bottom bar so the decision she's making stays in view.
  */
 export function ReviewScreen({ book, onDone, onFixIt }: ReviewScreenProps) {
   const [folderError, setFolderError] = useState<string | null>(null);
@@ -48,7 +54,7 @@ export function ReviewScreen({ book, onDone, onFixIt }: ReviewScreenProps) {
     <main aria-labelledby="review-heading">
       <h1 id="review-heading">✅ {book.title ?? book.original_filename} is ready!</h1>
 
-      <div className="stack-sm">
+      <div className="card stack-sm">
         <p>
           <strong>Author:</strong> {formatAuthor(book.author_first, book.author_last)}
         </p>
@@ -68,14 +74,16 @@ export function ReviewScreen({ book, onDone, onFixIt }: ReviewScreenProps) {
       </button>
       {folderError ? <p role="alert">{folderError}</p> : null}
 
-      <p>Does the audiobook chapters look right or do they need renamed?</p>
-      <div className="button-row">
-        <BigButton variant="primary" disabled={saving} onClick={() => void handleYes()}>
-          Yes, looks good
-        </BigButton>
-        <BigButton variant="plain" disabled={saving} onClick={() => void handleNo()}>
-          No, let me fix it
-        </BigButton>
+      <div className="screen-actions stack-sm">
+        <p>Does the audiobook chapters look right or do they need renamed?</p>
+        <div className="button-row">
+          <BigButton variant="primary" disabled={saving} onClick={() => void handleYes()}>
+            Yes, looks good
+          </BigButton>
+          <BigButton variant="plain" disabled={saving} onClick={() => void handleNo()}>
+            No, let me fix it
+          </BigButton>
+        </div>
       </div>
 
       <button type="button" className="link-button" onClick={() => void openOutputFolder()}>

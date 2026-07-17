@@ -54,7 +54,7 @@ for what "aligned" means here versus a certified conformance claim.
 | Sanitize stage | "Clean up bad language" |
 | Audio stage | "Turn into audiobook" |
 | Retag | "Does the audiobook chapters look right or do they need renamed?" (framed as a yes/no review, not a named feature) |
-| Settings | "⚙️" / not labeled "Settings" — grouped as "Change my folders," "Words to clean up," and "File name helper" separately |
+| Settings | Screen 1 shows one "⚙️ More options" entry point (not labeled "Settings"), which opens a hub screen listing "Change my folders," "Words to clean up," "File name helper," and "What voice did I use before?" as full-size buttons. **Revised 2026-07-14** — see §Settings areas below for why this replaced four separate small entry points directly on Screen 1. |
 | Profanity list | "Words to clean up" |
 | Voice (Kokoro voice key, e.g. `af_heart`) | First name only, e.g. "Heart" |
 | AI provider (Gemini / OpenAI) | "File name helper" for the feature; "Google (free)" / "OpenAI" as the two choices — never "AI provider," "API," or the technical product name "Gemini" |
@@ -203,6 +203,68 @@ To keep this scoped honestly rather than open-ended:
   such fonts outperform a well-spaced, ordinary sans-serif is mixed, so
   it isn't treated as load-bearing for this alignment.
 
+## Visual design system (cross-cutting, applies to every screen)
+
+Added 2026-07-15, after reviewing a reference deck for `EMS_ReadyKit`
+(a separate personal project with a polished mobile-first web-app UI)
+at Jennifer's request, to judge whether this app's UI is "par for the
+type of app" — full backlog tracking in `docs/BACKLOG.md` Epic 8.6.
+The question behind this section isn't "should this app look more like
+a phone app" in general — it's laptop-only, mouse/keyboard-primary
+(`00-overview-and-goals.md`), built around the RA/FMS persona, not a
+touch-first general mobile audience. What follows is a deliberate
+sort: what a well-designed mobile reference genuinely transfers to
+that context, and what would actively work against it.
+
+**Governing rule: exactly one stylesheet.** `frontend/src/index.css`
+is the only CSS file in this project — every design token, every
+class, every pattern below lives there. No CSS modules, no
+CSS-in-JS, no per-component stylesheets, no inline `style` props. This
+isn't new — it's already true of the codebase — but Epic 8.6 adds an
+ESLint rule that enforces it in CI rather than leaving it to habit
+(see `CLAUDE.md`'s Key architectural decisions table).
+
+**Already satisfied, not new work:**
+- A narrow, centered content column even at full desktop width
+  (`main`/`.app-header`, `max-width: 720px`) — the single biggest
+  "feels like a deliberate app, not a stretched webpage" cue a mobile
+  reference offers, and this app already has it.
+- A shared card-surface language (`.card`, and `main`/`.app-header`
+  using the same radius/shadow tokens — `--radius-lg`, `--shadow-md`/
+  `--shadow-sm`) — one visual vocabulary for "this is a bounded
+  section," not a different look per screen. Epic 8.6 audits every
+  screen for *consistent use* of this, not new tokens.
+
+**New patterns, added this pass:**
+- **`.screen-actions`** — a sticky/fixed bottom action bar for a
+  screen's primary button(s), so the button a person is working
+  toward stays in the same place instead of scrolling away — adapted
+  from the reference's floating CTA, sized to this app's existing
+  ~70px big-button minimum, not a lighter general-mobile weight.
+  Applied to Working, Voice Assignment, Review, and Confirm Metadata
+  (`docs/BACKLOG.md` Epic 8.6's own checklist has the exact list and
+  the re-verification requirement against each screen's axe tests).
+- **`.icon-badge`** — the gradient-tile treatment `.app-header__icon`
+  already uses, generalized into a reusable class rather than a
+  header-only one-off.
+
+**Deliberately not adopted, and why:**
+- **No bottom tab bar.** A tab bar signals lateral navigation between
+  peer destinations (Home / Alerts / whatever). This app is a linear
+  wizard — Add Books → Confirm → Voice → Working → Review — not a set
+  of peer sections, and a tab bar would misrepresent that.
+- **No icon-only controls.** Even where the reference uses a bare
+  icon with no visible label, this app doesn't — it would conflict
+  with both the plain-language rule in §General principles and the
+  real-accessible-name requirement already committed to in
+  §Accessibility: WCAG 2.1 AA alignment §Perceivable.
+- **A real inline-SVG icon system, replacing the current emoji, is
+  explicitly out of scope** for this pass — not rejected, just not
+  worth its real cost (a fresh accessible-name pass plus a full
+  app-wide axe re-run) against the benefit, since the existing emoji
+  already carry text alternatives. Flagged in `docs/BACKLOG.md` as a
+  future nice-to-have with no owning epic, not silently dropped.
+
 ## Screen-by-screen flow
 
 ### First launch only: one-time setup
@@ -214,8 +276,8 @@ Where should your finished books go?  [ Choose Folder... ]
 Uses a native OS folder picker (see `01-architecture.md` for how a
 browser-based GUI can still show a native dialog). Saved to
 `settings.json` (see `05-data-settings-and-logging.md`). Never shown again
-after this, except via the "⚙️ Change my folders" entry point available
-from Screen 1 going forward.
+after this, except via the "⚙️ Change my folders" option on the "⚙️ More
+options" hub screen, reachable from Screen 1 going forward.
 
 ### First launch only: AI Helper Setup (one-time, skippable)
 
@@ -236,9 +298,9 @@ This uses a free online helper to guess titles and authors.
   option — and routes to `NullProvider` (`ai_provider: "none"`). Nothing
   breaks; "Fix messy file names" on Screen 1 still works using EPUB's own
   built-in info, just without AI-guessed improvements.
-- Reachable again later, without redoing folder setup, via a "🤖 File
-  name helper" entry point alongside "⚙️ Change my folders" and "🧼 Words
-  to clean up" on Screen 1.
+- Reachable again later, without redoing folder setup, via the "🤖 File
+  name helper" option on the "⚙️ More options" hub screen, alongside
+  "⚙️ Change my folders" and "🧼 Words to clean up".
 
 If "Yes, help me":
 ```
@@ -276,7 +338,7 @@ Don't have one yet?  [ Get a code ]
 - `[ Skip for now ]` is always present here too, in case she starts this
   flow and decides not to finish it — routes to `NullProvider`, exactly
   like the top-level "Skip" button above, and can be revisited later from
-  the same "🤖 File name helper" entry point.
+  the same "🤖 File name helper" option.
 - No jargon: never says "API key," "provider," or the key itself once
   entered (masked, like a password field).
 
@@ -329,9 +391,9 @@ Your books:
 🏷️  Fix messy file names    [ On ]
 🧼  Clean up bad language   [ On ]
 
-⚙️ Change my folders     🧼 Words to clean up     🤖 File name helper     🎙️ What voice did I use before?
-
            [ Start ]
+
+           [ ⚙️ More options ]
 ```
 - Both toggles default **On** (matches current manual usage pattern).
 - Drag-and-drop is supported but never the *only* way in — the "Choose
@@ -341,7 +403,10 @@ Your books:
   §Accessibility: WCAG 2.1 AA alignment §Operable.
 - Files dropped/chosen that aren't valid `.epub` files are rejected
   individually with a friendly message — they do not block the rest of
-  the batch (see `06-safety-error-handling.md` §Input Validation).
+  the batch (see `06-safety-error-handling.md` §Input Validation). Each
+  rejected file's message has its own "Remove" button too, so it can be
+  dismissed individually rather than only ever clearing by replacement
+  when a new batch of files is added.
 - "Choose Books..." opens a standard native file picker, **starting**
   in her remembered books folder — this is a starting location, not a
   restriction. It's a normal OS file dialog, so she can navigate
@@ -357,6 +422,14 @@ Your books:
   fully reversible — she can just add the file again. It uses the same
   plain, unstyled treatment as "Words to clean up"'s Remove buttons, and
   likewise needs **no confirmation dialog** before removing.
+- **"⚙️ More options" is Screen 1's single entry point into everything
+  else** (folders, words to clean up, file name helper, voice history)
+  — see §Settings areas below for the hub screen it opens. **Placed
+  below Start, not above it** (revised 2026-07-14, same real-feedback
+  session as the button's own consolidation): this is a rarely-visited
+  destination, not something she's in and out of during the normal
+  add-books-and-go flow, so it shouldn't sit between the toggles and
+  the one button she actually presses every time.
 
 ### Per-book identification loop (after Start, before generation)
 For each book in the batch, in sequence:
@@ -691,7 +764,26 @@ Then a confirmation screen:
 - "Done" returns to the next book in the batch (or ends the run), same as
   pressing "Yes" would have.
 
-### Settings areas (reachable via "⚙️" entry points, not a single combined settings page)
+### Settings areas (reachable via the "⚙️ More options" hub screen)
+
+**Revised 2026-07-14 (real user feedback — vision + fine-motor-control
+difficulty):** this section originally kept these four destinations as
+four separate small entry points directly on Screen 1, explicitly
+avoiding a single combined settings page ("not a single combined
+settings page" was this section's own former heading). Real feedback
+showed those four small links were too easy to miss and too hard to
+reliably tap. Screen 1 now has exactly **one** entry point here,
+"⚙️ More options" — sized as a full ~70px big button like everything
+else in this design — which opens a hub screen (`MoreOptionsScreen`)
+listing the same four destinations below, each now its own full-size
+big button rather than a small link. This keeps Screen 1 itself down to
+its two real decisions (which books, then Start) per §General
+principles' "one decision per screen," while fixing the sizing
+complaint everywhere it applies, not just on Screen 1. It's placed
+*below* Start on Screen 1 (see §Screen 1: Add Books above) since it's a
+rarely-visited destination, not part of her normal add-books-and-go
+flow. The four destinations and their own screens below are otherwise
+unchanged.
 
 **Change my folders:**
 ```
@@ -741,8 +833,8 @@ Add a new word:
 - **Read-only** — no Change Voice button here, no editing. This is a
   lookup, not a settings control; changing a voice going forward still
   happens through the normal per-book §Voice Assignment flow.
-- Reachable from Screen 1's "🎙️ What voice did I use before?" entry
-  point, alongside the other "⚙️" entry points.
+- Reachable from the "⚙️ More options" hub screen's "🎙️ What voice did I
+  use before?" option, alongside the other three destinations above.
 - **Two distinct empty-looking states, worded differently on purpose:**
   - **Legitimately nothing yet** (log exists, has zero rows — she hasn't
     made an audiobook yet): *"You haven't made any audiobooks yet—once

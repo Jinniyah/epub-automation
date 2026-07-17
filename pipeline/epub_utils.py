@@ -101,6 +101,87 @@ def sanitize_filesystem_name(name: str, max_length: int = MAX_COMPONENT_LENGTH) 
 
 
 # ---------------------------------------------------------------------------
+# Best-effort metadata guesses -- fallback sources for the rename stage's
+# AI-enrichment merge (docs/BACKLOG.md Epic 8.5 "AI-enrichment sanity
+# check / per-field merge"), and for `NullProvider` when no AI is
+# configured at all. Real, already-available signals (the EPUB's own
+# DC:creator field, and a filename that already starts "Lastname,
+# Firstname") were previously being discarded whenever an AI response (or
+# the no-AI NullProvider path) didn't independently reproduce them -- a
+# real bug, not a design choice: 03-gui-ux-design.md's own AI Helper Setup
+# copy promises "Fix messy file names... still works using EPUB's own
+# built-in info" when AI is skipped, which wasn't actually true for the
+# author field before this.
+# ---------------------------------------------------------------------------
+
+# A filename that already starts "Lastname, Firstname" ahead of a dash --
+# covers the very common real-world case of a filename that's already
+# mostly right (e.g. "Sanderson, Brandon - Elantris.epub") even when it
+# doesn't exactly match this project's own normalized shape
+# (`rename_stage.FILENAME_PATTERN`), for example because it uses a plain
+# hyphen instead of an em dash.
+_FILENAME_AUTHOR_RE = re.compile(r"^([^,]+),\s*([^—\-]+?)\s*[—\-]")
+
+# A "— Series #NN —" segment anywhere in the filename, independent of
+# whether the filename as a whole matches the normalized shape.
+_FILENAME_SERIES_RE = re.compile(
+    r"[—\-]\s*(?P<series>.+?)\s*#(?P<number>\d{1,3})\s*[—\-]", re.IGNORECASE
+)
+
+
+def parse_author_name(raw: str | None) -> tuple[str | None, str | None]:
+    """Best-effort split of a single combined author string -- typically
+    an EPUB's own DC:creator field (e.g. "Brandon Sanderson") -- into
+    ``(first, last)``. Handles both "First Last" and "Last, First" shapes.
+
+    Returns ``(None, None)`` for anything blank -- a wrong guess is worse
+    than no guess here, since Screen 1's Confirm step is always the real
+    backstop (03-gui-ux-design.md §Per-book identification loop), and
+    `build_filename()` already has its own "Unknown" fallback for a
+    genuinely missing author.
+    """
+    if not raw or not raw.strip():
+        return None, None
+    text = raw.strip()
+    if "," in text:
+        last, _, first = text.partition(",")
+        last = last.strip()
+        first = first.strip()
+        return (first or None), (last or None)
+    parts = text.split()
+    if len(parts) == 1:
+        return None, parts[0]
+    return " ".join(parts[:-1]), parts[-1]
+
+
+def guess_author_from_filename(filename: str) -> tuple[str | None, str | None]:
+    """Best-effort ``(first, last)`` author guess from a filename that
+    already starts "Lastname, Firstname" ahead of a dash. Returns
+    ``(None, None)`` if the filename doesn't start with that shape."""
+    match = _FILENAME_AUTHOR_RE.match(filename)
+    if not match:
+        return None, None
+    last = match.group(1).strip()
+    first = match.group(2).strip()
+    return (first or None), (last or None)
+
+
+def guess_series_from_filename(filename: str) -> tuple[str | None, int | None]:
+    """Best-effort ``(series, series_number)`` guess from a filename that
+    already contains a "— Series #NN —" segment. Returns ``(None, None)``
+    if no such segment is present."""
+    match = _FILENAME_SERIES_RE.search(filename)
+    if not match:
+        return None, None
+    series = match.group("series").strip()
+    try:
+        number = int(match.group("number"))
+    except ValueError:
+        return (series or None), None
+    return (series or None), number
+
+
+# ---------------------------------------------------------------------------
 # Heading normalisation -- ported verbatim from epub-to-audio\epub_utils.py.
 # ---------------------------------------------------------------------------
 

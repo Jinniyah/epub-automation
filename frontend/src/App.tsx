@@ -16,6 +16,7 @@ import { ConfirmMetadataScreen } from "./screens/ConfirmMetadataScreen";
 import { ErrorScreen } from "./screens/ErrorScreen";
 import { FixInfoFlow } from "./screens/FixInfoFlow";
 import { FoldersScreen } from "./screens/FoldersScreen";
+import { MoreOptionsScreen } from "./screens/MoreOptionsScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { VoiceAssignmentScreen } from "./screens/VoiceAssignmentScreen";
 import { VoiceHistoryScreen } from "./screens/VoiceHistoryScreen";
@@ -31,7 +32,13 @@ type Phase =
   | "main"
   | "quit";
 
-type SettingsSubView = "folders" | "words" | "ai-helper" | "voice-history" | null;
+type SettingsSubView =
+  | "menu"
+  | "folders"
+  | "words"
+  | "ai-helper"
+  | "voice-history"
+  | null;
 
 /** Top-level container: owns the one-time onboarding sequence (folder
  * setup -> AI Helper Setup -> "Welcome back") and, once past it, the
@@ -72,9 +79,10 @@ function App() {
   }
 
   /** Home only ever appears for the settings sub-views reached from
-   * Screen 1's entry points -- never mid-onboarding (nothing to go home
-   * to yet) and never mid-batch (03-gui-ux-design.md's screens already
-   * *are* her true current state; see `AppHeader`'s own docstring). */
+   * Screen 1's "More options" entry point -- never mid-onboarding
+   * (nothing to go home to yet) and never mid-batch
+   * (03-gui-ux-design.md's screens already *are* her true current
+   * state; see `AppHeader`'s own docstring). */
   function renderScreen(): ReactNode {
     if (phase === "loading" || !settings) {
       return (
@@ -130,7 +138,19 @@ function App() {
       );
     }
 
-    // ---- Settings sub-views, reachable from Screen 1's entry points ----
+    // ---- "More options" hub + settings sub-views it opens, reached
+    // from Screen 1's single "⚙️ More options" entry point ----
+    if (subView === "menu") {
+      return (
+        <MoreOptionsScreen
+          onOpenFolders={() => setSubView("folders")}
+          onOpenWords={() => setSubView("words")}
+          onOpenAiHelper={() => setSubView("ai-helper")}
+          onOpenVoiceHistory={() => setSubView("voice-history")}
+          onDone={() => setSubView(null)}
+        />
+      );
+    }
     if (subView === "folders") {
       return (
         <FoldersScreen
@@ -178,12 +198,7 @@ function App() {
       );
     }
 
-    const openEntryPoints = {
-      onOpenFolders: () => setSubView("folders"),
-      onOpenWords: () => setSubView("words"),
-      onOpenAiHelper: () => setSubView("ai-helper"),
-      onOpenVoiceHistory: () => setSubView("voice-history"),
-    };
+    const onOpenMore = () => setSubView("menu");
 
     if (status.error) {
       const errorBook = status.books.find((b) => b.id === status.error?.book_id);
@@ -214,7 +229,7 @@ function App() {
             cleanLanguage={settings.clean_language}
             onChanged={() => void polling.refresh()}
             onStart={() => void polling.refresh()}
-            {...openEntryPoints}
+            onOpenMore={onOpenMore}
           />
         );
       }
@@ -238,7 +253,7 @@ function App() {
               cleanLanguage={settings.clean_language}
               onChanged={() => void polling.refresh()}
               onStart={() => void polling.refresh()}
-              {...openEntryPoints}
+              onOpenMore={onOpenMore}
             />
           );
         }

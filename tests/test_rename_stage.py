@@ -2,9 +2,11 @@
 
 Covers: FILENAME_PATTERN / build_filename (ported from epub-renamer/tests/
 test_renamer.py, ADR-0014), the ADR-0016 filesystem-sanitization seam,
-already-normalized skip, dry-run, name-conflict handling, and the silent
+already-normalized skip, dry-run, name-conflict handling, the silent
 per-file NullProvider fallback on AI failure
-(docs/requirements/02-pipeline-stages.md §Stage 1 Failure handling).
+(docs/requirements/02-pipeline-stages.md §Stage 1 Failure handling), and
+the per-field AI-enrichment merge fallback chain (docs/BACKLOG.md
+Epic 8.5, fixed 2026-07-14).
 """
 
 from __future__ import annotations
@@ -232,6 +234,12 @@ def test_run_renames_using_null_provider_metadata_only(
     out_path = tmp_path / "output" / result.data["filename"]
     assert out_path.exists()
     assert result.data["title"] == "My Book"
+    # NullProvider now parses the EPUB's own DC:creator field rather than
+    # discarding it (docs/BACKLOG.md Epic 8.5) -- "no AI configured"
+    # still uses the book's own built-in info, per 03-gui-ux-design.md's
+    # own promise.
+    assert result.data["author_first"] == "Jane"
+    assert result.data["author_last"] == "Doe"
 
     rows = audit_log.read_all()
     assert len(rows) == 1
@@ -279,6 +287,86 @@ def test_run_sanitizes_illegal_characters_from_ai_metadata(
 
     assert "?" not in result.data["filename"]
     assert (tmp_path / "output" / result.data["filename"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# RenameStage.run -- per-field AI-enrichment merge fallbacks
+# (docs/BACKLOG.md Epic 8.5, fixed 2026-07-14)
+# ---------------------------------------------------------------------------
+
+
+def test_ai_missing_author_falls_back_to_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exact real-world bug report: a filename that already carries
+    "Lastname, Firstname" (just not in this project's own exact
+    already-normalized shape, e.g. a plain hyphen instead of an em dash)
+    still gets its author filled in, even when the AI response only
+    returned a title and left every other field null."""
+    filename = "Sanderson, Brandon - Elantris.epub"
+    _make_epub(tmp_path / "input" / filename, title="Elantris", author="unused")
+    fake = _FakeProvider({"title": "Elantris"})  # author/series left out entirely
+    stage, _ = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": filename}))
+
+    assert result.status == "renamed"
+    assert result.data["author_first"] == "Brandon"
+    assert result.data["author_last"] == "Sanderson"
+    assert result.data["filename"] == "Sanderson, Brandon — Elantris.epub"
+
+
+def test_ai_missing_author_falls_back_to_epub_metadata_when_filename_has_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the filename itself has no author info to guess from, the
+    EPUB's own DC:creator field is still a real, available signal -- an
+    AI response leaving author blank shouldn't discard it."""
+    _make_epub(
+        tmp_path / "input" / "messy_filename.epub",
+        title="Elantris",
+        author="Brandon Sanderson",
+    )
+    fake = _FakeProvider({"title": "Elantris"})
+    stage, _ = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": "messy_filename.epub"}))
+
+    assert result.data["author_first"] == "Brandon"
+    assert result.data["author_last"] == "Sanderson"
+
+
+def test_ai_missing_series_falls_back_to_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filename = "Jordan, Robert - Wheel of Time #09 - Winter's Heart.epub"
+    _make_epub(tmp_path / "input" / filename, title="Winter's Heart")
+    fake = _FakeProvider({"title": "Winter's Heart", "author_last": "Jordan"})
+    stage, _ = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": filename}))
+
+    assert result.data["series"] == "Wheel of Time"
+    assert result.data["series_number"] == 9
+
+
+def test_ai_provided_author_takes_priority_over_filename_guess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real AI answer (general book knowledge, not just text pattern
+    matching) still wins over a filename guess when both are present --
+    the fallback chain only fills genuine gaps, it never overrides."""
+    filename = "Wrong, Name - Elantris.epub"
+    _make_epub(tmp_path / "input" / filename, title="Elantris")
+    fake = _FakeProvider(
+        {"title": "Elantris", "author_first": "Brandon", "author_last": "Sanderson"}
+    )
+    stage, _ = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": filename}))
+
+    assert result.data["author_first"] == "Brandon"
+    assert result.data["author_last"] == "Sanderson"
 
 
 # ---------------------------------------------------------------------------
@@ -361,12 +449,14 @@ def test_name_conflict_keeps_original_filename_instead_of_overwriting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _make_epub(tmp_path / "input" / "book.epub", title="My Book", author="Jane Doe")
-    # NullProvider only passes the title through (never splits an author
-    # string into first/last), so this is the exact name RenameStage will
-    # compute for this fixture -- derived via build_filename() rather than
-    # hardcoded, so this test doesn't depend on NullProvider's author
-    # behavior staying the same.
-    conflict_name = build_filename({"title": "My Book"})
+    # NullProvider now parses the EPUB's own DC:creator field (docs/
+    # BACKLOG.md Epic 8.5), so this is the exact name RenameStage will
+    # compute for this fixture -- derived via build_filename() rather
+    # than hardcoded, so this test doesn't depend on NullProvider's exact
+    # author-parsing behavior staying the same.
+    conflict_name = build_filename(
+        {"title": "My Book", "author_first": "Jane", "author_last": "Doe"}
+    )
     (tmp_path / "output").mkdir(parents=True)
     (tmp_path / "output" / conflict_name).write_text("already here")
 

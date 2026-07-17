@@ -38,6 +38,19 @@ concern that belongs to `main.py`/`backend/bridge.py` (Epic 6) and
 Screen 1 validation (Epic 8), once a runner that iterates whole batches
 exists. `DEFAULT_MAX_FILES` below is exported now so those epics have a
 single constant to wire up rather than inventing their own number.
+
+**Per-field AI-enrichment merge (docs/BACKLOG.md Epic 8.5, fixed
+2026-07-14):** `final_meta` used to take the AI response's
+author/series/series_number fields as-is, with no fallback for a field
+the AI response left blank -- unlike `title`, which already fell back to
+the EPUB's own metadata. A real filename like "Sanderson, Brandon —
+Elantris.epub" already carries clean author info, and a real AI response
+sometimes only fills in `title` and leaves the rest `null` (the model
+genuinely doesn't know, or the prompt's series-only rules don't apply to
+a standalone book) -- both cases used to silently discard information
+that was sitting right there. `_merge_field_fallbacks()` below applies
+the same fallback chain (AI response -> filename-derived guess -> EPUB
+metadata) to every field, not just title.
 """
 
 from __future__ import annotations
@@ -52,7 +65,12 @@ from pipeline.ai_providers.null_provider import NullProvider
 from pipeline.ai_providers.registry import get_provider
 from pipeline.audit_logger import AuditLogRepository
 from pipeline.epub_reader import extract_epub_metadata, extract_text_sample
-from pipeline.epub_utils import sanitize_filesystem_name
+from pipeline.epub_utils import (
+    guess_author_from_filename,
+    guess_series_from_filename,
+    parse_author_name,
+    sanitize_filesystem_name,
+)
 from pipeline.stage import BookState
 
 # Matches both valid normalized formats:
@@ -103,6 +121,35 @@ def build_filename(meta: dict[str, Any]) -> str:
     if middle:
         return f"{last}, {first} — {middle} — {title}.epub"
     return f"{last}, {first} — {title}.epub"
+
+
+def _merge_field_fallbacks(
+    ai_meta: dict[str, Any], filename: str, metadata: dict[str, Any]
+) -> dict[str, Any]:
+    """Apply the AI-response -> filename-guess -> EPUB-metadata fallback
+    chain to every field, not just title -- see the module docstring's
+    "Per-field AI-enrichment merge" note above.
+
+    `metadata` (from `extract_epub_metadata()`) has no series field at
+    all -- EPUBs have no standard place to put one -- so series/
+    series_number only ever fall back to a filename guess, never to
+    `metadata`.
+    """
+    fname_author_first, fname_author_last = guess_author_from_filename(filename)
+    meta_author_first, meta_author_last = parse_author_name(metadata.get("author"))
+    fname_series, fname_series_number = guess_series_from_filename(filename)
+
+    return {
+        "title": ai_meta.get("title") or metadata.get("title"),
+        "author_first": (
+            ai_meta.get("author_first") or fname_author_first or meta_author_first
+        ),
+        "author_last": (
+            ai_meta.get("author_last") or fname_author_last or meta_author_last
+        ),
+        "series": ai_meta.get("series") or fname_series,
+        "series_number": ai_meta.get("series_number") or fname_series_number,
+    }
 
 
 class RenameStage:
@@ -192,13 +239,7 @@ class RenameStage:
         for key in _RESULT_KEYS:
             ai_meta.setdefault(key, None)
 
-        final_meta: dict[str, Any] = {
-            "title": ai_meta.get("title") or metadata.get("title"),
-            "author_first": ai_meta.get("author_first"),
-            "author_last": ai_meta.get("author_last"),
-            "series": ai_meta.get("series"),
-            "series_number": ai_meta.get("series_number"),
-        }
+        final_meta = _merge_field_fallbacks(ai_meta, filename, metadata)
         new_name = build_filename(final_meta)
         ai_used_flag = "yes" if ai_used else "no"
 

@@ -5,7 +5,10 @@ source repos needed to solve this), so it gets a full test-first suite.
 normalise_heading()/extract_chapters()/chunk_text() (Epic 4) are ported
 verbatim from epub-to-audio\\epub_utils.py (ADR-0014); their tests are
 adapted from that project's own test suite where one existed, otherwise
-written fresh against the ported behavior.
+written fresh against the ported behavior. parse_author_name()/
+guess_author_from_filename()/guess_series_from_filename() (docs/
+BACKLOG.md Epic 8.5, fixed 2026-07-14) are new fallback-guess helpers for
+the rename stage's per-field AI-enrichment merge.
 """
 
 from __future__ import annotations
@@ -18,7 +21,10 @@ from pipeline.epub_utils import (
     MAX_COMPONENT_LENGTH,
     chunk_text,
     extract_chapters,
+    guess_author_from_filename,
+    guess_series_from_filename,
     normalise_heading,
+    parse_author_name,
     sanitize_filesystem_name,
 )
 
@@ -99,6 +105,75 @@ def test_idempotent_after_truncation() -> None:
     once = sanitize_filesystem_name(long_name, max_length=30)
     twice = sanitize_filesystem_name(once, max_length=30)
     assert once == twice
+
+
+# ---------------------------------------------------------------------------
+# parse_author_name / guess_author_from_filename / guess_series_from_filename
+# (docs/BACKLOG.md Epic 8.5, fixed 2026-07-14)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_author_name_first_last_shape() -> None:
+    assert parse_author_name("Brandon Sanderson") == ("Brandon", "Sanderson")
+
+
+def test_parse_author_name_last_comma_first_shape() -> None:
+    assert parse_author_name("Sanderson, Brandon") == ("Brandon", "Sanderson")
+
+
+def test_parse_author_name_single_word_is_last_name_only() -> None:
+    assert parse_author_name("Cher") == (None, "Cher")
+
+
+def test_parse_author_name_multi_word_first_name() -> None:
+    assert parse_author_name("Mary Ann Shaffer") == ("Mary Ann", "Shaffer")
+
+
+def test_parse_author_name_blank_or_none_returns_nones() -> None:
+    assert parse_author_name(None) == (None, None)
+    assert parse_author_name("") == (None, None)
+    assert parse_author_name("   ") == (None, None)
+
+
+def test_guess_author_from_filename_matches_lastname_comma_firstname() -> None:
+    assert guess_author_from_filename("Sanderson, Brandon - Elantris.epub") == (
+        "Brandon",
+        "Sanderson",
+    )
+
+
+def test_guess_author_from_filename_matches_em_dash_too() -> None:
+    assert guess_author_from_filename("Sanderson, Brandon — Elantris.epub") == (
+        "Brandon",
+        "Sanderson",
+    )
+
+
+def test_guess_author_from_filename_no_match_without_comma() -> None:
+    assert guess_author_from_filename("Elantris.epub") == (None, None)
+
+
+def test_guess_author_from_filename_no_match_without_dash() -> None:
+    # A comma alone isn't enough -- e.g. a title that happens to contain
+    # one shouldn't be misread as "Lastname, Firstname".
+    assert guess_author_from_filename("A Tale, Retold.epub") == (None, None)
+
+
+def test_guess_series_from_filename_matches_hyphen_shape() -> None:
+    name = "Jordan, Robert - Wheel of Time #09 - Winter's Heart.epub"
+    assert guess_series_from_filename(name) == ("Wheel of Time", 9)
+
+
+def test_guess_series_from_filename_matches_em_dash_shape() -> None:
+    name = "Cornwell, Patricia — Kay Scarpetta #13 — Trace.epub"
+    assert guess_series_from_filename(name) == ("Kay Scarpetta", 13)
+
+
+def test_guess_series_from_filename_no_match_for_standalone() -> None:
+    assert guess_series_from_filename("Sanderson, Brandon - Elantris.epub") == (
+        None,
+        None,
+    )
 
 
 # ---------------------------------------------------------------------------

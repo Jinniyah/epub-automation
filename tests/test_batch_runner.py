@@ -169,14 +169,27 @@ def _data_of(runner: BatchRunner, book_id: str) -> dict[str, Any]:
     raise KeyError(book_id)
 
 
-def _expected_folder_name(*, title: str, author_last: str | None = None) -> str:
-    """The exact folder name build_filename() will produce -- with
-    ai_provider="none", NullProvider never resolves an author, so the
-    default fallback ("Unknown, Unknown") applies unless overridden."""
+def _expected_folder_name(
+    *,
+    title: str,
+    author_first: str | None = "Benedict",
+    author_last: str | None = "Jacka",
+) -> str:
+    """The exact folder name build_filename() will produce for a book
+    added via `_add_book()`'s default author ("Benedict Jacka").
+
+    NullProvider now parses the EPUB's own DC:creator field into
+    author_first/author_last rather than always leaving it unresolved
+    (docs/BACKLOG.md Epic 8.5, fixed 2026-07-14) -- these defaults
+    ("Benedict"/"Jacka") match that real parse of `_make_epub()`'s own
+    default author, not a fallback. Pass `author_first=None,
+    author_last=None` explicitly for a book whose filename/EPUB metadata
+    genuinely has nothing to parse.
+    """
     return build_filename(
         {
             "title": title,
-            "author_first": None,
+            "author_first": author_first,
             "author_last": author_last,
             "series": None,
             "series_number": None,
@@ -618,9 +631,7 @@ def test_output_collision_pauses_for_her_decision_instead_of_overwriting(
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
 
     # Pre-create a colliding folder in output_folder before generation
-    # would try to copy the finished audiobook out. NullProvider never
-    # resolves an author (ai_provider="none"), so build_filename() falls
-    # back to "Unknown, Unknown" for that component.
+    # would try to copy the finished audiobook out.
     colliding = tmp_path / "Output" / _expected_folder_name(title="Fated")
     colliding.mkdir(parents=True)
     (colliding / "sentinel.txt").write_text("pre-existing content")

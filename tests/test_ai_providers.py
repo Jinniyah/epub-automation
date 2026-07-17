@@ -2,7 +2,8 @@
 and the provider registry. Ported from epub-renamer/tests/
 test_ai_provider_base.py (ADR-0014), adjusted for this project's registry
 keys (`"none"` instead of `"null"`) and the explicit `api_key` constructor
-argument (ADR-0003).
+argument (ADR-0003). NullProvider's author/series parsing (docs/
+BACKLOG.md Epic 8.5, fixed 2026-07-14) is new behavior, not ported.
 """
 
 from __future__ import annotations
@@ -78,6 +79,52 @@ def test_null_provider_returns_none_for_missing_metadata() -> None:
     provider = NullProvider()
     result = provider.identify_book("book.epub", {}, "")
     assert result["title"] is None
+    assert result["author_first"] is None
+    assert result["author_last"] is None
+
+
+# ---------------------------------------------------------------------------
+# NullProvider -- author/series parsing (docs/BACKLOG.md Epic 8.5, fixed
+# 2026-07-14). This used to always return None for everything except
+# title, discarding real, already-available signals in the EPUB's own
+# DC:creator field and the filename itself -- a real gap against
+# 03-gui-ux-design.md's own promise that skipping AI still works "using
+# EPUB's own built-in info."
+# ---------------------------------------------------------------------------
+
+
+def test_null_provider_parses_author_from_epub_metadata() -> None:
+    provider = NullProvider()
+    result = provider.identify_book(
+        "messy_filename.epub", {"title": "Elantris", "author": "Brandon Sanderson"}, ""
+    )
+    assert result["author_first"] == "Brandon"
+    assert result["author_last"] == "Sanderson"
+
+
+def test_null_provider_prefers_filename_author_over_metadata() -> None:
+    """A filename that already reads "Lastname, Firstname" is usually
+    more deliberately curated than a raw DC:creator field -- checked
+    first."""
+    provider = NullProvider()
+    result = provider.identify_book(
+        "Sanderson, Brandon - Elantris.epub",
+        {"title": "Elantris", "author": "Some Other Name"},
+        "",
+    )
+    assert result["author_first"] == "Brandon"
+    assert result["author_last"] == "Sanderson"
+
+
+def test_null_provider_parses_series_from_filename() -> None:
+    provider = NullProvider()
+    result = provider.identify_book(
+        "Jordan, Robert - Wheel of Time #09 - Winter's Heart.epub",
+        {"title": "Winter's Heart"},
+        "",
+    )
+    assert result["series"] == "Wheel of Time"
+    assert result["series_number"] == 9
 
 
 # ---------------------------------------------------------------------------

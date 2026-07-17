@@ -19,10 +19,7 @@ function noopHandlers() {
   return {
     onChanged: vi.fn(),
     onStart: vi.fn(),
-    onOpenFolders: vi.fn(),
-    onOpenWords: vi.fn(),
-    onOpenAiHelper: vi.fn(),
-    onOpenVoiceHistory: vi.fn(),
+    onOpenMore: vi.fn(),
   };
 }
 
@@ -96,6 +93,52 @@ describe("AddBooksScreen", () => {
     expect(handlers.onChanged).toHaveBeenCalled();
   });
 
+  it("rejected files can be dismissed individually", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(client, "addBooks").mockResolvedValue({
+      results: [
+        {
+          ok: false,
+          original_filename: "Skyward.epub",
+          book_id: null,
+          reason: "damaged",
+          message: "This file looks damaged",
+        },
+        {
+          ok: false,
+          original_filename: "Warbreaker.epub",
+          book_id: null,
+          reason: "damaged",
+          message: "This file looks damaged",
+        },
+      ],
+    });
+    const handlers = noopHandlers();
+    render(<AddBooksScreen books={[]} fixNames cleanLanguage {...handlers} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["not really an epub"], "Skyward.epub", {
+      type: "application/epub+zip",
+    });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(
+      await screen.findByText(/Skyward\.epub: This file looks damaged/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Warbreaker\.epub: This file looks damaged/)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: 'Remove "Skyward.epub" from this list' }),
+    );
+
+    expect(
+      screen.queryByText(/Skyward\.epub: This file looks damaged/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Warbreaker\.epub: This file looks damaged/),
+    ).toBeInTheDocument();
+  });
+
   it("warns when disk space is insufficient", async () => {
     vi.spyOn(client, "getDiskSpace").mockResolvedValue({
       estimated_total_bytes: 999_999_999_999,
@@ -147,7 +190,7 @@ describe("AddBooksScreen", () => {
     await vi.waitFor(() => expect(handlers.onStart).toHaveBeenCalledTimes(1));
   });
 
-  it("entry point buttons fire their callbacks", async () => {
+  it("More options button fires its callback", async () => {
     const user = userEvent.setup();
     vi.spyOn(client, "getDiskSpace").mockResolvedValue({
       estimated_total_bytes: 0,
@@ -157,17 +200,9 @@ describe("AddBooksScreen", () => {
     const handlers = noopHandlers();
     render(<AddBooksScreen books={[]} fixNames cleanLanguage {...handlers} />);
 
-    await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
-    await user.click(screen.getByRole("button", { name: "🧼 Words to clean up" }));
-    await user.click(screen.getByRole("button", { name: "🤖 File name helper" }));
-    await user.click(
-      screen.getByRole("button", { name: "🎙️ What voice did I use before?" }),
-    );
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
 
-    expect(handlers.onOpenFolders).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWords).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenAiHelper).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenVoiceHistory).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenMore).toHaveBeenCalledTimes(1);
   });
 
   it("has no axe violations", async () => {

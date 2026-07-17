@@ -326,7 +326,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens Words and Voice History from Screen 1's other entry points", async () => {
+  it("opens Words and Voice History from the More options hub", async () => {
     const user = userEvent.setup();
     mockCore(settings(), status());
     vi.spyOn(client, "getVoiceHistory").mockResolvedValue({ ok: true, history: [] });
@@ -335,11 +335,16 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("Add your books");
 
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+    await screen.findByText("More options");
+
     await user.click(screen.getByRole("button", { name: "🧼 Words to clean up" }));
     expect(await screen.findByText("Words to clean up")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));
     await screen.findByText("Add your books");
 
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+    await screen.findByText("More options");
     await user.click(
       screen.getByRole("button", { name: "🎙️ What voice did I use before?" }),
     );
@@ -398,7 +403,7 @@ describe("App", () => {
     await vi.waitFor(() => expect(getStatusSpy).toHaveBeenCalledTimes(2));
   });
 
-  it("opens and returns from the folders settings sub-view via Screen 1's entry point", async () => {
+  it("opens and returns from the folders settings sub-view via the More options hub", async () => {
     const user = userEvent.setup();
     mockCore(settings(), status());
     vi.spyOn(client, "updateSettings").mockResolvedValue({ ok: true });
@@ -406,6 +411,8 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("Add your books");
 
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+    await screen.findByText("More options");
     await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
     expect(await screen.findByText("Your folders")).toBeInTheDocument();
 
@@ -423,8 +430,8 @@ describe("App", () => {
     expect(screen.getByRole("banner")).toHaveTextContent("Audiobook Maker");
     expect(screen.queryByRole("button", { name: /Home/ })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
-    await screen.findByText("Your folders");
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+    await screen.findByText("More options");
 
     expect(screen.getByRole("button", { name: "🏠 Home" })).toBeInTheDocument();
   });
@@ -435,8 +442,8 @@ describe("App", () => {
 
     render(<App />);
     await screen.findByText("Add your books");
-    await user.click(screen.getByRole("button", { name: "⚙️ Change my folders" }));
-    await screen.findByText("Your folders");
+    await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+    await screen.findByText("More options");
 
     await user.click(screen.getByRole("button", { name: "🏠 Home" }));
 

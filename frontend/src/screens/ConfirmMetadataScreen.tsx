@@ -37,6 +37,36 @@ type EditableField = "title" | "author" | "series" | "series_number";
  * Field Correction Popup (03-gui-ux-design.md §Per-book identification
  * loop). This loop runs for every book in the batch before voice
  * assignment starts for any of them.
+ *
+ * **Visual design system (docs/BACKLOG.md Epic 8.6):** in standalone
+ * mode, the field list is its own `.card` and the primary action sits
+ * in a `.screen-actions` sticky bottom bar. Neither applies in
+ * `asOverlay` mode -- the enclosing `Overlay` already provides its own
+ * bounded card surface and its own action area, so nesting either
+ * pattern again here would double up rather than add clarity, and a
+ * sticky-positioned bar specifically risks colliding with the
+ * overlay's own focus trap (see `.screen-actions`' own doc comment in
+ * index.css).
+ *
+ * **Overlay-mode spacing (fixed 2026-07-17, real screenshot):** in
+ * `asOverlay` mode, this whole component renders as a single wrapping
+ * `<div>` -- the sole `children` of `Overlay`, which sits alongside
+ * `Overlay`'s own `<h2>` title as `.overlay`'s two direct children.
+ * `.overlay`'s own `> * + *` rhythm (index.css, space-4) reaches that
+ * gap fine, but the field list and the Save button are *this*
+ * component's own two children, one level deeper -- the same
+ * `main > * + *`-doesn't-reach-grandchildren gap `VoicePicker` had
+ * (docs/BACKLOG.md Epic 8.5), just one level further down. Fixed by
+ * wrapping them in `.stack` (index.css) for `asOverlay` mode only.
+ * **Deliberately not solved by flattening this component's wrapper
+ * into a `Fragment`** (the seemingly cleaner fix, letting `.overlay`'s
+ * own rule reach fieldList/confirmButton directly): the conditionally-
+ * rendered `FieldCorrectionPopup` blocks below are themselves full
+ * `Overlay`s (`position: fixed` backdrop) -- flattening would make one
+ * a DOM sibling of fieldList/confirmButton at the same level, and
+ * `.overlay > * + *` would then apply an unwanted `margin-top` to that
+ * fixed-position backdrop, visibly shifting the popup-on-a-popup down
+ * from the screen edge it's meant to fully cover.
  */
 export function ConfirmMetadataScreen({
   book,
@@ -98,39 +128,57 @@ export function ConfirmMetadataScreen({
     ? `We couldn't quite figure out ${title || "this book"} -- can you help?`
     : `Let's check ${title || "this book"}'s info`;
 
+  const fieldList = (
+    <div className="stack-sm">
+      <EditableFieldRow label="Title" value={title} onEdit={() => setEditing("title")} />
+      <EditableFieldRow
+        label="Author"
+        value={formatAuthor(authorFirst, authorLast)}
+        onEdit={() => setEditing("author")}
+      />
+      <EditableFieldRow
+        label="Series"
+        value={series}
+        onEdit={() => setEditing("series")}
+      />
+      <EditableFieldRow
+        label="Series Number"
+        value={seriesNumber}
+        onEdit={() => setEditing("series_number")}
+      />
+    </div>
+  );
+
+  const confirmButton = (
+    <BigButton variant="primary" disabled={saving} onClick={() => void handleConfirm()}>
+      {asOverlay ? "Save" : "Looks good"}
+    </BigButton>
+  );
+
   return (
     <Wrapper aria-labelledby={asOverlay ? undefined : "confirm-heading"}>
       {asOverlay ? null : <h1 id="confirm-heading">{heading}</h1>}
-      <div className="stack-sm">
-        <EditableFieldRow label="Title" value={title} onEdit={() => setEditing("title")} />
-        <EditableFieldRow
-          label="Author"
-          value={formatAuthor(authorFirst, authorLast)}
-          onEdit={() => setEditing("author")}
-        />
-        <EditableFieldRow
-          label="Series"
-          value={series}
-          onEdit={() => setEditing("series")}
-        />
-        <EditableFieldRow
-          label="Series Number"
-          value={seriesNumber}
-          onEdit={() => setEditing("series_number")}
-        />
-      </div>
 
-      <BigButton variant="primary" disabled={saving} onClick={() => void handleConfirm()}>
-        {asOverlay ? "Save" : "Looks good"}
-      </BigButton>
-
-      {!asOverlay && onRemoved ? (
-        <RemoveBookButton
-          bookId={book.id}
-          bookLabel={title || book.original_filename}
-          onRemoved={onRemoved}
-        />
-      ) : null}
+      {asOverlay ? (
+        <div className="stack">
+          {fieldList}
+          {confirmButton}
+        </div>
+      ) : (
+        <>
+          <div className="card">{fieldList}</div>
+          <div className="screen-actions stack-sm">
+            {confirmButton}
+            {onRemoved ? (
+              <RemoveBookButton
+                bookId={book.id}
+                bookLabel={title || book.original_filename}
+                onRemoved={onRemoved}
+              />
+            ) : null}
+          </div>
+        </>
+      )}
 
       {editing === "title" ? (
         <FieldCorrectionPopup

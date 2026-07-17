@@ -37,6 +37,24 @@ export default tseslint.config(
       // recommended rules are the CI-enforced backstop for that, per
       // 09-testing-strategy.md's accessibility-testing section.
       ...jsxA11y.flatConfigs.recommended.rules,
+      // Enforces the single-stylesheet rule (docs/requirements/
+      // 03-gui-ux-design.md §Visual design system, docs/BACKLOG.md
+      // Epic 8.6): every class/token lives in frontend/src/index.css,
+      // never an inline `style` prop. Uses core ESLint's
+      // `no-restricted-syntax` (an AST selector, not a JSX-specific
+      // rule) rather than `eslint-plugin-react`'s `forbid-dom-props`,
+      // since that plugin isn't otherwise a dependency of this project
+      // and this project's toolchain otherwise favors already-present
+      // plugins (see this file's own header comment) over adding a new
+      // one just for a single rule.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXAttribute[name.name='style']",
+          message:
+            "No inline `style` props -- add a class to frontend/src/index.css instead (docs/requirements/03-gui-ux-design.md §Visual design system: exactly one stylesheet).",
+        },
+      ],
     },
   },
 );

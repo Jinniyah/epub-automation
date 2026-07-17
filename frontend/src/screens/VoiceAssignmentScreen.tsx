@@ -20,6 +20,25 @@ function voiceDisplayName(voices: VoiceChoice[] | null, key: string): string {
 
 /** §Voice assignment (03-gui-ux-design.md) -- single-book full picker or
  * the multi-book table, chosen by `useVoiceAssignmentView`'s `mode`.
+ *
+ * **Visual design system (docs/BACKLOG.md Epic 8.6):** the single-book
+ * picker's Next button uses `VoicePicker`'s `stickyActions` (a real
+ * `<main>` screen, not inside an overlay, so a `.screen-actions` bottom
+ * bar is the right fit here). The same `VoicePicker` reused below for
+ * "Change Voice" deliberately leaves `stickyActions` off, since that
+ * usage is already inside an `Overlay`. "Start All Books" in table mode
+ * gets its own `.screen-actions` bar too.
+ *
+ * **Ordering constraint (fixed 2026-07-17, real screenshot):**
+ * `.screen-actions` bleeds to `main`'s edges and rounds its bottom
+ * corners (index.css) so it reads as the card's own footer -- it must
+ * stay the LAST element in DOM order, or anything rendered after it
+ * lands below the visually-closed-off card, spilling onto the page
+ * background instead of sitting inside the white card. Single-book
+ * mode's `RemoveBookButton` used to come after `VoicePicker` (whose own
+ * last child is that sticky bar) and floated outside the card as a
+ * result -- now grouped with the "Fix info" link above the picker
+ * instead, so the sticky Next bar stays genuinely last.
  */
 export function VoiceAssignmentScreen({
   books,
@@ -70,21 +89,24 @@ export function VoiceAssignmentScreen({
         <h1 id="voice-single-heading" className="sr-only">
           Pick a voice
         </h1>
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => setEditingMetadataFor(row.bookId)}
-        >
-          ✏️ Not quite right? Fix {row.title}'s info
-        </button>
+        <div className="button-row">
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setEditingMetadataFor(row.bookId)}
+          >
+            ✏️ Not quite right? Fix {row.title}'s info
+          </button>
+          <RemoveBookButton bookId={row.bookId} bookLabel={row.title} onRemoved={onChanged} />
+        </div>
         <VoicePicker
           bookLabel={label}
           initialVoice={row.voice}
           lastUsedVoice={lastVoice}
           voices={voices}
+          stickyActions
           onNext={(voice) => void handleAssign(row.bookId, voice)}
         />
-        <RemoveBookButton bookId={row.bookId} bookLabel={row.title} onRemoved={onChanged} />
         {editMetadataOverlay}
       </main>
     );
@@ -140,19 +162,21 @@ export function VoiceAssignmentScreen({
         </table>
       </div>
 
-      <BigButton
-        variant="primary"
-        disabled={starting}
-        onClick={() => {
-          setStarting(true);
-          void startGeneration().then(() => {
-            setStarting(false);
-            onChanged();
-          });
-        }}
-      >
-        Start All Books
-      </BigButton>
+      <div className="screen-actions">
+        <BigButton
+          variant="primary"
+          disabled={starting}
+          onClick={() => {
+            setStarting(true);
+            void startGeneration().then(() => {
+              setStarting(false);
+              onChanged();
+            });
+          }}
+        >
+          Start All Books
+        </BigButton>
+      </div>
 
       {changingRow ? (
         <Overlay
