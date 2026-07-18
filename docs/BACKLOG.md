@@ -469,7 +469,7 @@ matters, not just convenience).
 
 ### Phase A — unblocks real-person testing, do first ✅ Complete (2026-07-18)
 
-**Built and verified 2026-07-18** (467 backend tests / 96% coverage, 224
+**Built and verified 2026-07-18** (470 backend tests / 96% coverage, 224
 frontend tests / 32 files, both clean via real `pytest --cov` and
 `npm run build && npm run lint && npm test` passes; plus a real live
 smoke test, see below):
@@ -577,7 +577,25 @@ staying fully healthy throughout — the same real-server test that
 reproduced the original hang (empty response, full timeout, every time)
 before the fix.
 
-### Phase B — full packaging, deliberately after initial real-person feedback
+**A second real bug found and fixed the same day, also a real user
+report:** auto-load-from-folder's "Add N books" button failed every
+book whose filename had a space in it — real report: "The Dragon
+Reborn.epub," visibly listed on the same screen a moment earlier, came
+back "That file couldn't be found in your books folder" the instant she
+tried to add it. **Root cause:** `_safe_folder_epub_path()` ran the
+filename through `secure_filename()` before looking it up on disk —
+copied from `_safe_upload_path()`'s own path-traversal defense above it,
+which is the right tool for choosing a *new* filename to write to but
+the wrong one for looking up an *existing* file by its exact,
+already-known name: `secure_filename()` collapses whitespace runs into
+a single `_` (confirmed directly: `secure_filename("The Dragon
+Reborn.epub")` → `"The_Dragon_Reborn.epub"`, which never existed on
+disk). **Fix:** drop the `secure_filename()` step entirely; reject any
+filename containing a path-separator character outright (sufficient on
+its own to block traversal as a single path component), on top of the
+resolve()-and-containment check that was already there as defense in
+depth. New regression test adds a real file with a space in its name
+and confirms the full add flow succeeds.
 
 **Why this ordering, not just "nice to have first":** once she's testing
 against a real packaged `.exe`, every bug-fix cycle costs a full
@@ -637,6 +655,7 @@ packaging first and iterating against the finished artifact.
 | Flask doesn't serve the built frontend | 10 Phase A — done, built and verified 2026-07-18 (`_frontend_dist_dir()`/catch-all route in `backend/app.py`, live curl-verified against a real running server). |
 | No-console GUI launch for real-person testing | 10 Phase A — done, built and verified 2026-07-18 (`run_gui.vbs`, live-tested via `cscript`). |
 | "Change my folders" dialog not opening | 10 Phase A — **real user report, fixed and live-verified 2026-07-18**, same day. Pre-existing bug (unrelated to the Phase A code itself), surfaced by Phase A making real-server testing this easy for the first time: `tkinter` dialogs called from a Flask route handler hang intermittently, since every route runs on a fresh `waitress` worker thread. Fixed via a single persistent background thread owning all `tkinter` calls (`backend/dialogs.py::request_folder_pick()`). See `ADR-0006`'s addendum. |
+| Auto-load-from-folder fails filenames with spaces | 10 Phase A — **real user report, fixed 2026-07-18**, same day. `_safe_folder_epub_path()` ran the filename through `secure_filename()` before the disk lookup, which collapses whitespace into `_` — a listed, real file like "The Dragon Reborn.epub" came back "couldn't be found." Fixed by dropping that step in favor of a plain separator-character check plus the existing containment check, neither of which mangles the filename. |
 | Screen 1 auto-load-from-folder | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`GET`/`POST /api/books/from-folder`). |
 | Field Correction Popup format hints | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`FieldCorrectionPopup`'s new `hint` prop). |
 | MAX_FILES-exceeded rejection message, Screen 1 UI | 8 — done |

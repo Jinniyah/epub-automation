@@ -15,7 +15,7 @@ using a computer.
 > [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
 > real, tested code, and Flask now serves the built frontend directly
 > (`GET /` and friends) rather than needing Vite's own dev server —
-> 467 backend tests (~96% coverage), 224 frontend tests across 32 files,
+> 470 backend tests (~96% coverage), 224 frontend tests across 32 files,
 > `black`/`ruff`/`mypy --strict` + `eslint`/`tsc` all clean and
 > CI-enforced, plus a real live smoke test against an actually-running
 > server (curl-verified, not just unit tests) — confirmed 2026-07-18.
@@ -249,7 +249,7 @@ docs, not an intentional split of authority.
 | GUI frontend | React 19 + TypeScript (Vite build), bundled static output — no Node/npm needed at runtime | Built; Flask serves `dist/` directly (Epic 10 Phase A) |
 | Text-to-speech | `kokoro` (Kokoro-82M, local inference) | Built |
 | Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 Phase B |
-| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 467 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 224 tests across 32 files passing (confirmed via a real run 2026-07-18). Both CI-enforced. | Built |
+| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 470 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 224 tests across 32 files passing (confirmed via a real run 2026-07-18). Both CI-enforced. | Built |
 
 ## License
 

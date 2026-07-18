@@ -488,6 +488,31 @@ def test_add_books_from_folder_adds_a_real_book(
     assert any(b["original_filename"] == "Fated.epub" for b in status["books"])
 
 
+def test_add_books_from_folder_handles_a_filename_with_spaces(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    """Regression test: a real user report -- "The Dragon Reborn.epub"
+    (found and listed by GET /api/books/from-folder) came back "That
+    file couldn't be found" when added, because the lookup used to run
+    the filename through secure_filename() first, which collapses
+    whitespace into underscores and so looked for a file that never
+    existed. Must work for any normal book title with a space in it."""
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    (books_folder / "The Dragon Reborn.epub").write_bytes(
+        _make_epub_bytes(title="The Dragon Reborn")
+    )
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post(
+        "/api/books/from-folder", json={"filenames": ["The Dragon Reborn.epub"]}
+    )
+
+    body = resp.get_json()
+    assert body["results"][0]["ok"] is True, body["results"][0]["message"]
+    assert body["results"][0]["original_filename"] == "The Dragon Reborn.epub"
+
+
 def test_add_books_from_folder_rejects_a_path_traversal_filename(
     client: FlaskClient, tmp_path: Path
 ) -> None:
@@ -498,6 +523,32 @@ def test_add_books_from_folder_rejects_a_path_traversal_filename(
     resp = client.post(
         "/api/books/from-folder", json={"filenames": ["..\\..\\launcher.py"]}
     )
+
+    assert resp.get_json()["results"][0]["ok"] is False
+
+
+def test_add_books_from_folder_rejects_a_forward_slash_traversal_filename(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post(
+        "/api/books/from-folder", json={"filenames": ["../../launcher.py"]}
+    )
+
+    assert resp.get_json()["results"][0]["ok"] is False
+
+
+def test_add_books_from_folder_rejects_a_bare_parent_reference(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post("/api/books/from-folder", json={"filenames": [".."]})
 
     assert resp.get_json()["results"][0]["ok"] is False
 

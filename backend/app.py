@@ -392,14 +392,32 @@ def create_app(
 
     def _safe_folder_epub_path(folder: Path, filename: str) -> Path | None:
         """Resolve `filename` to a real `.epub` file directly inside
-        `folder` -- never a path-traversal escape, same defensive pattern
-        as `_safe_upload_path()` above, since this filename also arrives
-        from the client (the checklist she checked) rather than from a
-        trusted server-side listing at the moment it's actually used."""
-        safe_name = secure_filename(filename)
-        if not safe_name:
+        `folder` -- never a path-traversal escape, but deliberately
+        *not* via `secure_filename()` the way `_safe_upload_path()`
+        above does. That function is choosing a brand-new destination
+        filename for a write, where mangling the input is harmless; this
+        one is looking up an *existing* file whose exact name was
+        already handed to her via `GET /api/books/from-folder`'s own
+        listing. `secure_filename()` collapses whitespace runs into a
+        single `_` (`werkzeug.utils.secure_filename`'s own
+        `"_".join(filename.split())` step) -- a real bug, found via a
+        real user report: "The Dragon Reborn.epub" became
+        "The_Dragon_Reborn.epub", which doesn't exist, so a perfectly
+        normal book with a space in its title always came back "That
+        file couldn't be found," confusingly, right after Screen 1's own
+        listing had just shown it was there.
+
+        Rejecting any path-separator character is enough on its own to
+        stop `filename` from ever navigating outside `folder` as a
+        single path component (it can never contain `..\\..\\` or similar
+        without a separator to walk with); the resolve()-and-containment
+        check below is defense-in-depth on top of that, not the only
+        guard -- together they reject traversal attempts without
+        mangling any legitimate filename.
+        """
+        if not filename or "/" in filename or "\\" in filename:
             return None
-        candidate = (folder / safe_name).resolve()
+        candidate = (folder / filename).resolve()
         if folder.resolve() not in candidate.parents:
             return None
         if candidate.suffix.lower() != ".epub" or not candidate.is_file():
