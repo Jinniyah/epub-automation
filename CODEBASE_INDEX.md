@@ -7,7 +7,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | Path | Status | Owned by |
 |---|---|---|
 | `main.py` | Real (Epic 6). CLI `rename`/`sanitize`/`audio`/`all`/`retag` commands wired to real stages via `pipeline/cli_runner.py`, non-interactively, over `settings.json`'s `books_folder`/`output_folder`. `all` chains stages through ephemeral temp dirs. `retag` takes a positional folder + `--author-first`/`--author-last`/`--title`/`--series`/`--series-number` overrides (new args, absent from the Epic 0 scaffold). `--workers` still reserved/validated only (ADR-0009). | Epic 0 / Epics 2-6 |
-| `launcher.py` | Real (Epic 6). `find_free_port()` (OS-assigned, ADR-0008's host stays fixed), `open_browser()` retry-then-native-tkinter-fallback (07-packaging-deployment.md), a port sidecar file next to the lock file so a second launch can still reopen a tab despite dynamic port selection. **Live-verified end to end 2026-07-18** (Epic 10 Phase A): a real `python launcher.py` run, curl-confirmed to serve the real built frontend + real API + correct SPA-fallback/404 behavior, then shut down cleanly via `/api/quit`. | Epic 0 / Epic 6 / Epic 10 |
+| `launcher.py` | Real (Epic 6). `find_free_port()` (OS-assigned, ADR-0008's host stays fixed), `open_browser()` retry-then-native-tkinter-fallback (07-packaging-deployment.md), a port sidecar file next to the lock file so a second launch can still reopen a tab despite dynamic port selection. **Live-verified end to end 2026-07-18** (Epic 10 Phase A): a real `python launcher.py` run, curl-confirmed to serve the real built frontend + real API + correct SPA-fallback/404 behavior, then shut down cleanly via `/api/quit`. **Real bug found and fixed 2026-07-18, real user report:** `_ensure_stdio_streams()` — `pythonw.exe` (what `run_gui.vbs` runs) detaches stdio entirely, `sys.stdout`/`sys.stderr` are `None`, not just empty; `kokoro`'s own `__init__.py` does `logger.add(sys.stderr, ...)` at import time and crashed with `TypeError: Cannot log to objects of type 'NoneType'` the moment audio generation first tried to lazily import it. Called once at module level, replaces a `None` stream with a real `os.devnull` handle before Flask ever starts serving requests. | Epic 0 / Epic 6 / Epic 10 |
 | `run_gui.vbs` | Real (Epic 10 Phase A). No-console `pythonw.exe` wrapper around `launcher.py` for real-person testing before the real packaged `.exe` (Phase B) exists — a testing-phase stand-in, explicitly not a replacement. Live-verified via `cscript` (2026-07-18): no console window, no lingering process after `/api/quit`. | Epic 10 |
 | `backend/app.py` | Real (Epic 6, extended Epic 8/9/10). Full JSON API route set — status polling, settings, folder picker, add/remove books (multipart upload), auto-load-from-folder (Epic 10), disk-space, batch start/start-generation, per-book confirm/voice/pause/cancel/collision/review/retag, voice-history, support-bundle, welcome-back, cleanup-in-progress (Epic 9), quit, plus serving the built frontend (Epic 10). **Epic 8 additions**, all found genuinely missing while building the real frontend against this contract, not pre-planned: `GET /api/voices` + `GET /api/voice-samples/<voice>` (voice picker list + preview playback; the former is also this app's lazy voice-sample-cache trigger point), `POST /api/books/<id>/metadata` (multi-book voice table's clickable-title metadata edit, distinct from `confirm` and `retag`), `POST /api/books/<id>/open-folder` + `POST /api/open-output-folder` (Review screen's two "📂 See..." links — no raw filesystem path ever crosses the wire, both resolved server-side). **Epic 9 additions:** `_build_runner(restore=True)` seeds the one runner built at process startup from `state_repo.incomplete_book_snapshots()` — full "Welcome back" resume, not just detection (`AppState.new_runner()`'s "batch done -> fresh runner" reset stays `restore=False`, deliberately never resurrects a genuinely finished batch); `POST /api/cleanup-in-progress` (the "nuke everything in progress" escape hatch, replaces the in-memory runner afterward since it may hold now-deleted books/files). **Epic 10 Phase A additions:** `_frontend_dist_dir()` + a catch-all `GET /`/`GET /<path:path>` route (registered last, `static_folder=None` on the `Flask()` construction since this replaces its default static handling entirely) serving `frontend/dist/` — live-verified via curl against a real running server, not just the Flask test client; a mistyped `/api/*` GET still gets a real 404, never silently falls back to `index.html`. `GET`/`POST /api/books/from-folder` (auto-load-from-folder, moved from Epic 8.5) — the `POST` reuses `POST /api/books`'s exact per-file result shape, each filename re-validated server-side against `books_folder` before being read. **`_safe_folder_epub_path()` deliberately does NOT run the filename through `secure_filename()`** (fixed post-verification, real user report) — that's the right tool for `_safe_upload_path()` above (choosing a *new* destination filename, where mangling is harmless) but the wrong one for looking up an *existing* file by its exact, already-known name: `secure_filename()` collapses whitespace into `_`, so a real book like "The Dragon Reborn.epub" silently came back "couldn't be found." A plain path-separator-character check (no `/`/`\`) plus the existing resolve()-and-containment check block traversal just as well, without mangling anything. One `BatchRunner` per app instance; auto-replaced with a fresh one once `done` (`_current_runner()`). | Epic 0 / Epic 6 / Epic 8 / Epic 9 / Epic 10 |
 | `backend/dialogs.py` | Real (Epic 6, extended Epic 8/10). `pick_folder()` via `tkinter.filedialog.askdirectory()`; `tk_factory`/`ask_directory` injectable seams so tests never open a real Tk window. Epic 8 added `open_folder()` (`os.startfile`, Windows-only) for the same two Review-screen links above — **`tests/test_app.py` monkeypatches this globally (autouse fixture)**, same as `pick_folder`, after an early Epic 8 session accidentally popped real Explorer windows during a full local test run before that fixture existed. **Epic 10 Phase A addition, real bug found and fixed via live testing (real user report, 2026-07-18):** `request_folder_pick()` — `pick_folder_route()` now calls this instead of `pick_folder()` directly. Every Flask route runs on a fresh `waitress` worker thread, never the process's actual main thread, and `tkinter` needs one *consistent* thread for its global interpreter state — calling `pick_folder()` straight from a route intermittently hung forever (reproduced live: the request never returned while every other route kept responding, meaning exactly one of `waitress`'s finite worker threads got stuck). `request_folder_pick()` hands the real `tkinter` work off to a single background thread, started lazily and reused for the process's whole lifetime, and blocks for the answer the same way the route already needed to. See `ADR-0006`'s addendum and Session notes below. | Epic 6 / Epic 8 / Epic 10 |
@@ -81,19 +81,45 @@ with zero knowledge of what had actually gone wrong underneath.
 (same pattern as the rename-stage bug earlier the same day), then
 reproduced the exact chapter-1/chunk-1 text against the exact voice
 (`bm_lewis`) live in the venv -- it generated successfully on the first
-try, meaning this was very likely a one-off transient failure (this
-book's first-ever use of that particular voice, which fetches its
-assets from Hugging Face Hub on first use -- `TTSEngine` already emits
-an "unauthenticated requests" warning for exactly this), not a
-reproducible bug. **Fix, regardless of root cause:** `_generate_with_
-retry()` now returns `(bytes | None, detail)`, and the last attempt's
-`TypeName: message` gets appended to the book's `error` field on final
-failure -- the exact same field `backend/bridge.py::
+try, wrongly suggesting a one-off transient failure. **Fix:**
+`_generate_with_retry()` now returns `(bytes | None, detail)`, and the
+last attempt's `TypeName: message` gets appended to the book's `error`
+field on final failure -- the exact same field `backend/bridge.py::
 current_error_detail()` already documented as the *only* channel real
 error text ever leaves the machine through (`build_support_bundle()`'s
 `technical_error`), it just had nothing real in it for this failure
 mode before now. No new logging infrastructure -- this reuses the
-existing support-bundle channel. 472 backend tests, clean
+existing support-bundle channel. **This fix is exactly what caught the
+real root cause minutes later, same day:** her next retry, now carrying
+the real exception, showed `TypeError: Cannot log to objects of type
+'NoneType'` -- not transient at all. See the `launcher.py` entry
+immediately below.
+
+**Epic 10 Phase A, a second real bug the same day, found via her actual
+retry immediately after the fix above:** `TypeError: Cannot log to
+objects of type 'NoneType'`, deterministic every time, not the
+transient failure the first live repro wrongly suggested. **Root
+cause:** the first repro ran under a normal console-attached `python`,
+where `sys.stderr` is a real object; the real app runs via `run_gui.vbs`
+(`pythonw.exe`), which detaches stdio entirely -- `sys.stdout`/
+`sys.stderr` are `None`, not just empty. `kokoro`'s own `__init__.py`
+(third-party, not this project's code) unconditionally does
+`from loguru import logger; logger.add(sys.stderr, ...)` the instant
+it's first imported -- `pipeline/tts_engine.py`'s lazy `_get_pipeline()`,
+deep inside the first real audio-generation request, which is exactly
+the first moment this ever ran under the new no-console launcher (every
+earlier successful generation, back through 2026-07-17, predates
+`run_gui.vbs`). loguru's `add()` raises exactly that `TypeError` for any
+sink that isn't a real writable/callable/path/`logging.Handler` -- `None`
+included. **Fix:** `launcher.py::_ensure_stdio_streams()`, called once
+at module level right after `launcher.py`'s own imports, replaces a
+`None` `sys.stdout`/`sys.stderr` with a real `os.devnull` handle before
+Flask/waitress ever starts serving requests. Confirmed two ways: forcing
+`sys.stdout`/`sys.stderr` to `None` reproduces the exact production
+error on `import kokoro`, and the fix resolves it; the exact failing
+chapter-1/chunk-1 text generates real audio end-to-end under simulated
+`None` stdio once the fix is applied. Two new regression tests
+(`tests/test_launcher.py`). 474 backend tests, clean
 `ruff`/`black`/`mypy`.
 
 **Epic 9, `StepProgress` follow-up fix, same day (real user feedback):**

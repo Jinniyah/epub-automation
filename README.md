@@ -15,7 +15,7 @@ using a computer.
 > [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
 > real, tested code, and Flask now serves the built frontend directly
 > (`GET /` and friends) rather than needing Vite's own dev server —
-> 472 backend tests (~96% coverage), 241 frontend tests across 32 files,
+> 474 backend tests (~96% coverage), 241 frontend tests across 32 files,
 > `black`/`ruff`/`mypy --strict` + `eslint`/`tsc` all clean and
 > CI-enforced, plus a real live smoke test against an actually-running
 > server (curl-verified, not just unit tests) — confirmed 2026-07-18.

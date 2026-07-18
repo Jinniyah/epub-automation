@@ -15,6 +15,7 @@ stays scoped to what it already owns (liveness), not port bookkeeping.
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import time
@@ -37,6 +38,35 @@ PORT_FILE_PATH = APPDATA_DIR / "epub-automation.port"
 HOST = "127.0.0.1"
 
 BROWSER_RETRY_DELAY_SECONDS = 1.0
+
+
+def _ensure_stdio_streams() -> None:
+    """`pythonw.exe` (this launcher's no-console entry point, `run_gui.vbs`)
+    and a windowed PyInstaller build (Phase B) both detach stdio entirely
+    -- `sys.stdout`/`sys.stderr` are `None`, not just redirected. Several
+    lazily-imported dependencies assume a real stream exists at their own
+    *import* time -- `kokoro/__init__.py` unconditionally does
+    `from loguru import logger; logger.add(sys.stderr, ...)` the moment
+    it's first imported (`pipeline/tts_engine.py`'s lazy `_get_pipeline()`,
+    deep inside the first real audio-generation request, well after this
+    module has finished importing) -- and crashes with `TypeError: Cannot
+    log to objects of type 'NoneType'` instead. Real bug, real user
+    report, 2026-07-18: reproduced every time under `run_gui.vbs`, never
+    under a console-attached `python launcher.py`, which is exactly why a
+    live repro against the same text/voice via a console-attached script
+    didn't catch it. Called at module level below, right after every
+    import this module itself needs -- none of those imports anything
+    stdio-sensitive at *their* import time, only later, at request time,
+    which is what makes calling this here (rather than needing to run
+    before this module's own imports) safe.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+_ensure_stdio_streams()
 
 
 def find_free_port(host: str = HOST) -> int:

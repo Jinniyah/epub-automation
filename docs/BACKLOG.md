@@ -117,21 +117,23 @@ attempt, so a genuine failure surfaced only as "Audio generation failed
 at chapter 1, chunk 1 (track 1/385)" — no exception type, no message,
 nothing for "Copy details for support" to actually carry. Diagnosed by
 reading her real support bundle directly (same pattern as the rename
-bug above), then reproducing the exact chapter-1/chunk-1 text against
-the exact voice (`bm_lewis`) live in the venv — it generated
-successfully, meaning this was very likely a one-off transient failure
-(this book's first-ever use of that particular voice, which downloads
-its assets from Hugging Face Hub on first use — see the "unauthenticated
-requests" warning `TTSEngine` already emits) rather than a reproducible
-bug in this codebase. **Fix, regardless of root cause:** the last
-attempt's exception (`TypeName: message`) is now appended to the `error`
-text stored on the book — the same field `backend/bridge.py::
-current_error_detail()` already reads as the "technical detail" for
-"Copy details for support" (that function's own docstring already
-called this out as the *only* channel real error text ever leaves the
-machine through; it just had nothing real in it for this failure mode
-until now). No new logging infrastructure added — this reuses the
-existing support-bundle channel rather than building a new one.
+bug above). **Fix:** the last attempt's exception (`TypeName: message`)
+is now appended to the `error` text stored on the book — the same field
+`backend/bridge.py::current_error_detail()` already reads as the
+"technical detail" for "Copy details for support" (that function's own
+docstring already called this out as the *only* channel real error text
+ever leaves the machine through; it just had nothing real in it for this
+failure mode until now). No new logging infrastructure added — this
+reuses the existing support-bundle channel rather than building a new
+one. **This fix is what caught the real root cause a few minutes later,
+same day** — a first live repro of the exact failing text/voice
+succeeded, wrongly suggesting a one-off transient failure; her very next
+retry, now carrying the real exception text thanks to this fix, showed
+`TypeError: Cannot log to objects of type 'NoneType'` — a real,
+deterministic bug, not a fluke. See Epic 10 Phase A's own section below
+for the actual root cause and fix (`launcher.py::_ensure_stdio_
+streams()`), since it belongs to the no-console launcher work that
+epic did, not to this stage.
 
 ---
 
@@ -592,6 +594,44 @@ smoke test, see below):
   to route logic already covered by the full backend test suite) is
   confirmed fixed; a real end-to-end UI walkthrough is still worth doing
   before or during her actual testing.
+
+**Real bug found and fixed 2026-07-18, real user report ("Something
+went wrong," audio generation failing on the very first chunk every
+time) — exactly the gap the note above flagged, a real end-to-end UI
+walkthrough under the actual `run_gui.vbs` launch path:**
+`pythonw.exe` (what `run_gui.vbs` runs, and what a windowed Phase B
+`.exe` will also do) detaches stdio entirely — `sys.stdout`/
+`sys.stderr` are `None`, not just redirected/empty. `kokoro`'s own
+`__init__.py` unconditionally does `from loguru import logger;
+logger.add(sys.stderr, ...)` the instant it's first imported
+(`pipeline/tts_engine.py`'s lazy `_get_pipeline()`, deep inside the
+first real audio-generation request) and crashes with `TypeError:
+Cannot log to objects of type 'NoneType'` — loguru's own `add()` only
+accepts a real writable object, a callable, a path, or a
+`logging.Handler`, and raises exactly that error for anything else,
+`None` included. **Why this took two rounds to actually diagnose:** the
+first failure (this same day) only had the generic "chapter 1, chunk 1"
+sentence to go on (see Epic 4's item above) — reproducing the exact
+failing text/voice live in the venv succeeded, because that repro ran
+under a normal console-attached `python`, where `sys.stderr` is real.
+Only once Epic 4's error-detail fix above was live did her *next* retry
+carry the actual exception text, revealing the real cause. **Fix:**
+`launcher.py::_ensure_stdio_streams()` — called once at module level,
+right after `launcher.py`'s own imports (none of which are themselves
+stdio-sensitive at *their* import time, only later, at request time) —
+replaces a `None` `sys.stdout`/`sys.stderr` with a real writable handle
+(`os.devnull`) before Flask/waitress ever starts serving requests, so
+by the time any request thread lazily imports `kokoro`, a real stream
+already exists. Confirmed two ways: (1) forcing `sys.stdout`/
+`sys.stderr` to `None` and importing `kokoro` reproduces the exact
+production `TypeError` every time; applying the same fix first makes
+the import succeed. (2) The exact failing chapter-1/chunk-1 text,
+generated end-to-end through `TTSEngine.generate()` with `bm_lewis`
+under simulated `None` stdio, produces real audio once the fix is
+applied. Two new regression tests in `tests/test_launcher.py` cover
+`_ensure_stdio_streams()` directly (replaces `None` streams with a real
+writable object; leaves already-real streams untouched). 474 backend
+tests, clean `ruff`/`black`/`mypy`.
 
 **Moved here from Epic 8.5 (2026-07-18, direct request), also built and
 verified in this pass:** two real UI-polish items that never got built.

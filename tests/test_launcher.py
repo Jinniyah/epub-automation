@@ -8,6 +8,7 @@ behavior)."""
 from __future__ import annotations
 
 import socket
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,43 @@ def test_find_free_port_returns_different_ports_across_calls() -> None:
     # and worth a smoke test that we're not hardcoding anything.
     ports = {launcher.find_free_port() for _ in range(5)}
     assert len(ports) > 1
+
+
+# ---------------------------------------------------------------------------
+# _ensure_stdio_streams -- pythonw.exe/windowed-exe None-stdio guard
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_stdio_streams_replaces_none_stdout_and_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    launcher._ensure_stdio_streams()
+
+    assert sys.stdout is not None
+    assert sys.stderr is not None
+    # Real bug this guards against: kokoro's own `__init__.py` calls
+    # `loguru.logger.add(sys.stderr, ...)` at import time, which only
+    # accepts an object with a real `.write()` -- proving that here is a
+    # closer regression test than merely asserting "not None".
+    sys.stdout.write("x")
+    sys.stderr.write("x")
+
+
+def test_ensure_stdio_streams_leaves_real_streams_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_stdout = object()
+    real_stderr = object()
+    monkeypatch.setattr(sys, "stdout", real_stdout)
+    monkeypatch.setattr(sys, "stderr", real_stderr)
+
+    launcher._ensure_stdio_streams()
+
+    assert sys.stdout is real_stdout
+    assert sys.stderr is real_stderr
 
 
 # ---------------------------------------------------------------------------
