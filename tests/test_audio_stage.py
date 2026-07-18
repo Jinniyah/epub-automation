@@ -338,6 +338,11 @@ def test_run_errors_after_exhausting_retries(tmp_path: Path) -> None:
     assert result.status == "error"
     assert len(fake_engine.calls) == 2  # respected max_chunk_retries
     assert "chapter 1" in result.data["error"].lower()
+    # The underlying exception's detail is appended -- this is the only
+    # channel `current_error_detail()`/the support bundle ever reads (see
+    # `backend/bridge.py`), so a bare "chapter 1, chunk 1" sentence with
+    # nothing underneath it left a real failure undiagnosable.
+    assert "RuntimeError: simulated TTS failure" in result.data["error"]
 
     rows = audit_log.read_all()
     assert rows[0]["skipped_reason"] == "generation_failed"

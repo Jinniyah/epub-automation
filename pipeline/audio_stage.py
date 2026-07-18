@@ -222,7 +222,7 @@ class AudioStage:
                 if mp3_path.exists() and mp3_path.stat().st_size > MIN_VALID_MP3_BYTES:
                     continue  # resume: already generated in a prior run
 
-                mp3_bytes = self._generate_with_retry(chunk, voice)
+                mp3_bytes, gen_error = self._generate_with_retry(chunk, voice)
                 if mp3_bytes is None:
                     self._audit_log.append(
                         self._audit_row(
@@ -233,15 +233,28 @@ class AudioStage:
                             skipped_reason="generation_failed",
                         )
                     )
+                    error_text = (
+                        f"Audio generation failed at chapter {ch_idx}, "
+                        f"chunk {ck_idx} (track {track_num}/{total_tracks})"
+                    )
+                    if gen_error:
+                        # The underlying Kokoro/pipeline exception -- never
+                        # surfaced in the polling contract's her-facing
+                        # `error.summary` (01-architecture.md), but this is
+                        # exactly the channel `current_error_detail()`/
+                        # `build_support_bundle()` already read as the
+                        # "technical detail" (see that function's own
+                        # docstring), which used to be this same generic
+                        # sentence with nothing underneath it -- a real gap
+                        # found 2026-07-18 diagnosing a real failed run with
+                        # nothing in the support bundle to go on.
+                        error_text += f" -- {gen_error}"
                     return BookState(
                         book.book_id,
                         "error",
                         {
                             **book.data,
-                            "error": (
-                                f"Audio generation failed at chapter {ch_idx}, "
-                                f"chunk {ck_idx} (track {track_num}/{total_tracks})"
-                            ),
+                            "error": error_text,
                             "audio_folder": str(book_dir),
                         },
                     )
@@ -271,15 +284,22 @@ class AudioStage:
             },
         )
 
-    def _generate_with_retry(self, text: str, voice: str) -> bytes | None:
+    def _generate_with_retry(self, text: str, voice: str) -> tuple[bytes | None, str]:
+        """Returns `(mp3_bytes, "")` on success, or `(None, detail)` once
+        every retry is exhausted, *detail* being the last attempt's
+        exception as plain text (`"TypeName: message"`) -- kept only for
+        `run()`'s error-reporting path, never logged/retried differently
+        by attempt number, since every attempt is otherwise identical."""
+        last_error = ""
         for attempt in range(1, self._max_chunk_retries + 1):
             try:
-                return self._tts_engine.generate(text, voice)
-            except Exception:
+                return self._tts_engine.generate(text, voice), ""
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
                 if attempt == self._max_chunk_retries:
-                    return None
+                    return None, last_error
                 time.sleep(self._retry_backoff_seconds)
-        return None
+        return None, last_error
 
     def _audit_row(
         self,

@@ -110,6 +110,29 @@ entirely at the frontend layer too, see Epic 8's own note). CPU/GPU
 benchmarking and Kokoro-vs-Perchance parity moved to Epic 10 (need
 real hardware, a real packaged `.exe`).
 
+**Real bug found and fixed 2026-07-18, real user report ("Something
+went wrong," a real failed run):** `AudioStage._generate_with_retry()`
+caught and discarded the actual Kokoro/pipeline exception on every
+attempt, so a genuine failure surfaced only as "Audio generation failed
+at chapter 1, chunk 1 (track 1/385)" — no exception type, no message,
+nothing for "Copy details for support" to actually carry. Diagnosed by
+reading her real support bundle directly (same pattern as the rename
+bug above), then reproducing the exact chapter-1/chunk-1 text against
+the exact voice (`bm_lewis`) live in the venv — it generated
+successfully, meaning this was very likely a one-off transient failure
+(this book's first-ever use of that particular voice, which downloads
+its assets from Hugging Face Hub on first use — see the "unauthenticated
+requests" warning `TTSEngine` already emits) rather than a reproducible
+bug in this codebase. **Fix, regardless of root cause:** the last
+attempt's exception (`TypeName: message`) is now appended to the `error`
+text stored on the book — the same field `backend/bridge.py::
+current_error_detail()` already reads as the "technical detail" for
+"Copy details for support" (that function's own docstring already
+called this out as the *only* channel real error text ever leaves the
+machine through; it just had nothing real in it for this failure mode
+until now). No new logging infrastructure added — this reuses the
+existing support-bundle channel rather than building a new one.
+
 ---
 
 ## Epic 5 — Retag Stage ✅ Complete (2026-07-10)

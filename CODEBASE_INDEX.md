@@ -27,7 +27,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | `spike/kokoro_spike.py` | **Complete.** Verifies kokoro import, espeak-ng DLL load, KPipeline init, audio gen — in venv and as built `.exe`. Confirmed working on Windows 2026-07-08. | Epic 1 (done) |
 | `pipeline/sanitize_stage.py` | Real (Epic 2). All 10 security controls from `PS_Run-CleanUpEpub.ps1`. `_ExtractEpub(SafeZipOperation)` + `SanitizeStage` w/ sidecar CSV + audit columns. | Epic 2 |
 | `pipeline/rename_stage.py` | Real (Epic 3). `RenameStage` + `FILENAME_PATTERN`/`build_filename` ported from `epub-renamer`'s `renamer.py`/`main.py`; copy-based (not in-place rename) to fit this pipeline's stage-folder model; dry-run + name-conflict handling; silent per-file `NullProvider` fallback on AI failure. **Real bug found and fixed 2026-07-18, real user report:** `_pass_through_already_normalized()` skipped re-renaming/AI (correctly — an already-normalized filename needs neither) but also skipped populating `title`/`author`/`series` entirely, which `BatchRunner._run_identification()` can't distinguish from a genuine AI failure (both look like "no title set"). Fixed via new `_parse_normalized_filename()`, which parses those fields back out of the filename directly, since `FILENAME_PATTERN` match means the filename is already in `build_filename()`'s own output shape. | Epic 3 |
-| `pipeline/audio_stage.py` | Real (Epic 4, extended Epic 6). `AudioStage` — per-book chapter/chunk TTS loop, ID3 tagging via mutagen, per-chunk resume, retry-then-error. Reuses `rename_stage.build_filename()` directly (minus `.epub`) for the output folder/file base name. Epic 6 added `on_progress`/`should_stop` Observer-pattern hooks (optional, default `None`, backward-compatible) — `pipeline/batch_runner.py`'s only way to report progress and implement Pause/Cancel without this stage ever knowing an HTTP server or batch runner exists. | Epic 4/6 |
+| `pipeline/audio_stage.py` | Real (Epic 4, extended Epic 6). `AudioStage` — per-book chapter/chunk TTS loop, ID3 tagging via mutagen, per-chunk resume, retry-then-error. Reuses `rename_stage.build_filename()` directly (minus `.epub`) for the output folder/file base name. Epic 6 added `on_progress`/`should_stop` Observer-pattern hooks (optional, default `None`, backward-compatible) — `pipeline/batch_runner.py`'s only way to report progress and implement Pause/Cancel without this stage ever knowing an HTTP server or batch runner exists. **Real bug found and fixed 2026-07-18, real user report:** `_generate_with_retry()` discarded the real exception on every attempt, leaving the book's `error` field (the only channel `current_error_detail()`/the support bundle ever reads) with a bare "chapter 1, chunk 1" sentence and nothing underneath it. Now returns `(bytes | None, detail)`; the last attempt's `TypeName: message` gets appended to `error` on final failure. | Epic 4/6 |
 | `pipeline/retag_stage.py` | Real (Epic 5). `RetagStage` — fixes ID3 tags/filenames/**containing folder name** (bug fix over the original script) for an already-generated audiobook folder. Folder-name parsing (`parse_folder_metadata`/`parse_stem_metadata`) handles both the old standalone-tool shape and this pipeline's own `build_filename()` shape; reuses `rename_stage.build_filename()` directly for all naming (ADR-0016), same pattern `audio_stage.py` already uses. Always manually triggered (`applies_to()` always `False`). | Epic 5 |
 | `pipeline/tts_engine.py` | Real (Epic 4, extended Epic 8). `TTSEngine` wraps `kokoro.KPipeline`, lazily imported/constructed (first real call only). `VOICES`/`DEFAULT_VOICE`, `estimate_audio_bytes()` (disk-space formula), `ensure_voice_samples()` (cache + version-tagging, now typed against `TTSEngineLike` rather than the concrete class — one less coupling point). MP3 encoding via `lameenc` at Kokoro's native 24kHz — see session notes below. Epic 8 added `installed_kokoro_version()` (package-metadata-only, never imports `kokoro` itself) to finally wire up `ensure_voice_samples()`'s cache-invalidation trigger, deferred since Epic 4/6. | Epic 4 / Epic 8 |
 | `pipeline/epub_reader.py` | Real (Epic 3, extended Epic 4). `extract_epub_metadata`/`extract_text_sample` ported verbatim from `epub-renamer/epub_reader.py`; `extract_cover_bytes()` (Epic 4) ported verbatim from `epub-to-audio\epub_utils.py`, 3-strategy fallback, used for ID3 cover art. | Epic 3/4 |
@@ -68,6 +68,33 @@ Future field: bump `CURRENT_SCHEMA_VERSION`, add a `_MIGRATIONS` entry
 keyed by old version, add a row here.
 
 ## Session notes
+
+**Epic 4, a real bug found and fixed the same day (real user report,
+"Something went wrong" on a real failed run):** her own support bundle
+showed only "Audio generation failed at chapter 1, chunk 1 (track
+1/385)" -- no exception type, no message, nothing to diagnose from.
+**Root cause:** `AudioStage._generate_with_retry()` caught every
+attempt's real exception and threw it away, returning a bare `None` on
+final failure -- `run()`'s error message was then built from scratch
+with zero knowledge of what had actually gone wrong underneath.
+**Diagnosis:** read her real support bundle and `state.json` directly
+(same pattern as the rename-stage bug earlier the same day), then
+reproduced the exact chapter-1/chunk-1 text against the exact voice
+(`bm_lewis`) live in the venv -- it generated successfully on the first
+try, meaning this was very likely a one-off transient failure (this
+book's first-ever use of that particular voice, which fetches its
+assets from Hugging Face Hub on first use -- `TTSEngine` already emits
+an "unauthenticated requests" warning for exactly this), not a
+reproducible bug. **Fix, regardless of root cause:** `_generate_with_
+retry()` now returns `(bytes | None, detail)`, and the last attempt's
+`TypeName: message` gets appended to the book's `error` field on final
+failure -- the exact same field `backend/bridge.py::
+current_error_detail()` already documented as the *only* channel real
+error text ever leaves the machine through (`build_support_bundle()`'s
+`technical_error`), it just had nothing real in it for this failure
+mode before now. No new logging infrastructure -- this reuses the
+existing support-bundle channel. 472 backend tests, clean
+`ruff`/`black`/`mypy`.
 
 **Epic 9, `StepProgress` follow-up fix, same day (real user feedback):**
 "I need to be able to use the cookie crumb bar to go backwards. It is
