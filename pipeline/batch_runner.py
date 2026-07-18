@@ -170,6 +170,92 @@ class BatchRunner:
         with self._lock:
             return [self._books[bid] for bid in self._book_order]
 
+    def _set_book(self, book_id: str, updated: BookState) -> None:
+        """The single place every status-changing mutation in this class
+        goes through: updates the in-memory book and persists a matching
+        status/data snapshot to the state file in the same step, so full
+        "Welcome back" resume (`restore_books()` below) always has a
+        reasonably fresh snapshot to rebuild from -- the same centralizing
+        role `_mark_and_persist_stage_complete()` already plays for
+        per-stage completion flags.
+
+        Deliberately NOT used by `_on_audio_progress()`, which fires once
+        per audio chunk -- far too often to justify a state-file write
+        every time, and unnecessary besides: `AudioStage`'s own
+        resume-by-existing-file-size check (pipeline/audio_stage.py) never
+        needs `chunks_done` from the state file to resume correctly, only
+        the coarser `status` this method already persists.
+
+        Holds `self._lock` across the state-file write itself, not just
+        the in-memory update -- `StateRepository`/`atomic_write_json` have
+        no locking of their own, and two threads (e.g. the identification
+        thread and an HTTP request thread handling Cancel) racing to call
+        `os.replace()` on the same `state.json` at once is a real,
+        reproducible `PermissionError` on Windows, not just a theoretical
+        concern. The write itself is a small, fast local JSON file, so
+        holding the lock for it is not a real throughput cost -- unlike
+        the actual TTS `generate()` call, which never goes through this
+        method at all.
+        """
+        with self._lock:
+            self._books[book_id] = updated
+            self._state_repo.save_book_snapshot(
+                book_id, updated.status, dict(updated.data)
+            )
+            self._state_repo.save()
+
+    def restore_books(self, snapshots: list[dict[str, Any]]) -> None:
+        """Seed a freshly-constructed, empty `BatchRunner` from persisted
+        state-file snapshots (`StateRepository.incomplete_book_snapshots()`)
+        -- full "Welcome back" resume (docs/BACKLOG.md Epic 9). Called once
+        by the caller (`backend/app.py::_build_app_state()`) right after
+        construction, before any book is added or any background thread
+        started. Never called mid-batch.
+
+        Coarse-grains a handful of statuses that represented a live
+        in-process operation with no thread behind them anymore, rather
+        than trying to reconstruct exact in-flight progress:
+
+        - `generating`/`paused` -> `voice_pick`. `AudioStage.run()`
+          (pipeline/audio_stage.py) already resumes a book by checking
+          existing MP3 file sizes on disk per chunk -- exactly what
+          already happens today when a *paused* book is resumed via
+          `start_generation()` (paused books are flipped back to
+          `voice_pick`, see that method's own docstring). A `generating`
+          book restored the same way gets the same free resume, without
+          this needing to persist exact chunk progress.
+        - `identifying` -> `pending`. `RenameStage`/`SanitizeStage` copy
+          their source rather than deleting it, so redoing identification
+          from scratch is always safe and, unlike audio generation, fast.
+        - Everything else (`pending`, `needs_input` of any type,
+          `voice_pick`, `error`, `cancelled`) is restored verbatim -- each
+          of these already represents a book sitting inert, waiting on
+          her, with no thread to lose.
+
+        Deliberately never writes back to the state file itself -- nothing
+        has changed yet, just been loaded into memory.
+        """
+        restore_status_map = {
+            STATUS_GENERATING: STATUS_VOICE_PICK,
+            STATUS_PAUSED: STATUS_VOICE_PICK,
+            STATUS_IDENTIFYING: STATUS_PENDING,
+        }
+        with self._lock:
+            for snap in snapshots:
+                book_id = str(snap["book_id"])
+                original_status = str(snap["status"])
+                status = restore_status_map.get(original_status, original_status)
+                data = dict(snap["data"])
+                if status != original_status:
+                    # Coarse-grained down to a safe restart point -- drop
+                    # in-flight fields that no longer mean anything (a
+                    # fresh voice_pick re-entry recomputes progress from
+                    # disk, not from these).
+                    data.pop("chunks_done", None)
+                    data.pop("chunks_total", None)
+                self._books[book_id] = BookState(book_id, status, data)
+                self._book_order.append(book_id)
+
     def add_book(
         self, source_path: Path, *, original_filename: str | None = None
     ) -> AddBookResult:
@@ -229,7 +315,9 @@ class BatchRunner:
             )
             self._books[book_id] = book
             self._book_order.append(book_id)
-            return AddBookResult(True, book=book)
+            self._state_repo.save_book_snapshot(book_id, book.status, dict(book.data))
+            self._state_repo.save()
+        return AddBookResult(True, book=book)
 
     def remove_book(self, book_id: str) -> bool:
         """Screen 1's per-row "Remove" -- instant, no confirmation needed
@@ -309,6 +397,13 @@ class BatchRunner:
             ]
             for bid in pending_ids:
                 self._books[bid] = replace(self._books[bid], status=STATUS_IDENTIFYING)
+            for bid in pending_ids:
+                self._state_repo.save_book_snapshot(
+                    bid, STATUS_IDENTIFYING, dict(self._books[bid].data)
+                )
+            if pending_ids:
+                self._state_repo.save()
+
             if (
                 self._identification_thread is not None
                 and self._identification_thread.is_alive()
@@ -402,12 +497,14 @@ class BatchRunner:
                     if book.data.get("title")
                     else NeedsInputType.AI_ENRICHMENT_FAILED
                 )
-                with self._lock:
-                    self._books[book_id] = replace(
+                self._set_book(
+                    book_id,
+                    replace(
                         book,
                         status=STATUS_NEEDS_INPUT,
                         data={**book.data, "needs_input_type": needs_type},
-                    )
+                    ),
+                )
 
         if sanitize_stage is not None:
             sanitize_stage.write_report()
@@ -428,8 +525,7 @@ class BatchRunner:
                 book_id, input_dir, output_dir, stage_key, state_stage
             )
         updated = self._record_trace(stage.run(book), stage_key)
-        with self._lock:
-            self._books[book_id] = updated
+        self._set_book(book_id, updated)
         if updated.status != STATUS_ERROR:
             self._mark_and_persist_stage_complete(book_id, state_stage)
         return updated
@@ -457,8 +553,7 @@ class BatchRunner:
             book, data={**book.data, "filename": filename, "epub_path": str(dst)}
         )
         updated = self._record_trace(updated, stage_key)
-        with self._lock:
-            self._books[book_id] = updated
+        self._set_book(book_id, updated)
         self._mark_and_persist_stage_complete(book_id, state_stage)
         return updated
 
@@ -468,9 +563,15 @@ class BatchRunner:
         (docs/requirements/06-safety-error-handling.md §Long-run
         resilience, `StateRepository.incomplete_book_ids()`) depends on
         being real, not just updated at the very end via `_mark_complete`.
+
+        Holds `self._lock` across the write itself -- see `_set_book()`'s
+        own docstring for why an unguarded `state_repo.save()` is a real,
+        reproducible Windows `PermissionError` once more than one thread
+        can call it around the same time.
         """
-        self._state_repo.mark_stage_complete(book_id, stage_name)
-        self._state_repo.save()
+        with self._lock:
+            self._state_repo.mark_stage_complete(book_id, stage_name)
+            self._state_repo.save()
 
     def _record_trace(self, book: BookState, stage_key: str) -> BookState:
         """Remember which filename this book has in the `stage_key`
@@ -518,8 +619,8 @@ class BatchRunner:
                         data[key] = corrections[key]
             data.pop("needs_input_type", None)
             updated = BookState(book_id, STATUS_IDENTIFIED, data)
-            self._books[book_id] = updated
 
+        self._set_book(book_id, updated)
         self._maybe_enter_voice_pick()
         return updated
 
@@ -544,7 +645,8 @@ class BatchRunner:
                 if key in corrections:
                     data[key] = corrections[key]
             updated = replace(book, data=data)
-            self._books[book_id] = updated
+
+        self._set_book(book_id, updated)
         return updated
 
     def _maybe_enter_voice_pick(self) -> None:
@@ -572,12 +674,22 @@ class BatchRunner:
                 return
 
             default_voice = self._settings.get("last_voice") or DEFAULT_VOICE
+            to_persist = []
             for book in identified:
-                self._books[book.book_id] = replace(
+                updated_book = replace(
                     book,
                     status=STATUS_VOICE_PICK,
                     data={**book.data, "voice": default_voice},
                 )
+                self._books[book.book_id] = updated_book
+                to_persist.append(updated_book)
+
+            for updated_book in to_persist:
+                self._state_repo.save_book_snapshot(
+                    updated_book.book_id, updated_book.status, dict(updated_book.data)
+                )
+            if to_persist:
+                self._state_repo.save()
 
     def assign_voice(self, book_id: str, voice: str) -> BookState:
         """ "Change Voice" on one row of the multi-book table, or the
@@ -587,8 +699,8 @@ class BatchRunner:
             if book.status != STATUS_VOICE_PICK:
                 raise ValueError(f"Book {book_id!r} is not awaiting a voice pick")
             updated = replace(book, data={**book.data, "voice": voice})
-            self._books[book_id] = updated
 
+        self._set_book(book_id, updated)
         self._settings["last_voice"] = voice
         self._maybe_auto_start_single_book_generation()
         return updated
@@ -630,12 +742,21 @@ class BatchRunner:
         to interrupt it (docs/requirements/06-safety-error-handling.md
         §Cancel design).
         """
+        resumed = []
         with self._lock:
             for bid in self._book_order:
                 if self._books[bid].status == STATUS_PAUSED:
-                    self._books[bid] = replace(
-                        self._books[bid], status=STATUS_VOICE_PICK
-                    )
+                    updated_book = replace(self._books[bid], status=STATUS_VOICE_PICK)
+                    self._books[bid] = updated_book
+                    resumed.append(updated_book)
+
+            for updated_book in resumed:
+                self._state_repo.save_book_snapshot(
+                    updated_book.book_id, updated_book.status, dict(updated_book.data)
+                )
+            if resumed:
+                self._state_repo.save()
+
             if (
                 self._generation_thread is not None
                 and self._generation_thread.is_alive()
@@ -678,26 +799,27 @@ class BatchRunner:
                     book = self._books[book_id]
                     if book.status != STATUS_VOICE_PICK:
                         continue
-                    self._books[book_id] = replace(book, status=STATUS_GENERATING)
-                    book = self._books[book_id]
+                    book = replace(book, status=STATUS_GENERATING)
+                    self._books[book_id] = book
+                    self._state_repo.save_book_snapshot(
+                        book_id, book.status, dict(book.data)
+                    )
+                    self._state_repo.save()
 
                 updated = audio_stage.run(book)
 
                 if updated.status == STATUS_CANCELLED:
                     keep = self._cancel_requests.pop(book_id, "keep") == "keep"
-                    with self._lock:
-                        self._books[book_id] = updated
+                    self._set_book(book_id, updated)
                     self._finalize_cancel(book_id, keep_partial=keep)
                     continue
 
                 if updated.status == STATUS_PAUSED:
-                    with self._lock:
-                        self._books[book_id] = updated
+                    self._set_book(book_id, updated)
                     continue
 
                 if updated.status == STATUS_ERROR:
-                    with self._lock:
-                        self._books[book_id] = updated
+                    self._set_book(book_id, updated)
                     continue
 
                 self._finish_generation(book_id, updated)
@@ -735,8 +857,9 @@ class BatchRunner:
         audio_folder = Path(updated.data["audio_folder"])
         collision = self._detect_collision(self._output_folder / audio_folder.name)
         if collision is not None:
-            with self._lock:
-                self._books[book_id] = replace(
+            self._set_book(
+                book_id,
+                replace(
                     updated,
                     status=STATUS_NEEDS_INPUT,
                     data={
@@ -744,7 +867,8 @@ class BatchRunner:
                         "needs_input_type": NeedsInputType.OUTPUT_COLLISION,
                         "collision": {"artifact": "audiobook", "path": collision},
                     },
-                )
+                ),
+            )
             return
 
         dest = self._copy_tree_to_output(audio_folder)
@@ -754,8 +878,9 @@ class BatchRunner:
         # race ahead of this write (a real TOCTOU risk, since review's
         # own completion path and this one share the same state file).
         self._mark_and_persist_stage_complete(book_id, "audio")
-        with self._lock:
-            self._books[book_id] = replace(
+        self._set_book(
+            book_id,
+            replace(
                 updated,
                 status=STATUS_NEEDS_INPUT,
                 data={
@@ -763,7 +888,8 @@ class BatchRunner:
                     "needs_input_type": NeedsInputType.REVIEW_RESULT,
                     "output_audio_folder": str(dest),
                 },
-            )
+            ),
+        )
 
     def _detect_collision(self, target: Path) -> str | None:
         return str(target) if target.exists() else None
@@ -804,12 +930,24 @@ class BatchRunner:
                 data.pop("chunks_total", None)
             updated = BookState(book_id, STATUS_CANCELLED, data)
             self._books[book_id] = updated
-        # 06-safety-error-handling.md §Cancel design: reset the state
-        # file's record of this book's audio progress to match reality,
-        # regardless of which choice she made, so a later run doesn't
-        # think it's further along (or fully done) than it actually is.
-        self._state_repo.reset_stage(book_id, "audio")
-        self._state_repo.save()
+            self._state_repo.save_book_snapshot(
+                book_id, updated.status, dict(updated.data)
+            )
+            # 06-safety-error-handling.md §Cancel design: reset the state
+            # file's record of this book's audio progress to match
+            # reality, regardless of which choice she made, so a later
+            # run doesn't think it's further along (or fully done) than
+            # it actually is.
+            self._state_repo.reset_stage(book_id, "audio")
+            # A cancelled book is genuinely done from the resume-tracking
+            # point of view -- without this it would stay in
+            # incomplete_book_ids()/incomplete_book_snapshots() forever
+            # (it never reaches _mark_complete's own "cleanup" marking)
+            # and incorrectly keep reappearing as "pending" on every
+            # future launch. Real gap found while building full "Welcome
+            # back" resume (docs/BACKLOG.md Epic 9).
+            self._state_repo.mark_stage_complete(book_id, "cleanup")
+            self._state_repo.save()
         return updated
 
     # ------------------------------------------------------------------
@@ -846,13 +984,12 @@ class BatchRunner:
         # Same ordering requirement as _finish_generation: persist "audio"
         # complete before this book becomes visible as awaiting review.
         self._mark_and_persist_stage_complete(book_id, "audio")
-        with self._lock:
-            data = dict(book.data)
-            data.pop("collision", None)
-            data["needs_input_type"] = NeedsInputType.REVIEW_RESULT
-            data["output_audio_folder"] = str(dest)
-            updated = replace(book, data=data)
-            self._books[book_id] = updated
+        data = dict(book.data)
+        data.pop("collision", None)
+        data["needs_input_type"] = NeedsInputType.REVIEW_RESULT
+        data["output_audio_folder"] = str(dest)
+        updated = replace(book, data=data)
+        self._set_book(book_id, updated)
         return updated
 
     # ------------------------------------------------------------------
@@ -898,8 +1035,7 @@ class BatchRunner:
         updated = stage.run(BookState(book_id, book.status, data))
 
         if updated.status == STATUS_ERROR:
-            with self._lock:
-                self._books[book_id] = updated
+            self._set_book(book_id, updated)
             return updated
 
         # RetagStage renamed the *output* folder in place -- restore the
@@ -909,8 +1045,7 @@ class BatchRunner:
         final_data = dict(updated.data)
         final_data["output_audio_folder"] = final_data["audio_folder"]
         final_data["audio_folder"] = library_audio_folder
-        with self._lock:
-            self._books[book_id] = replace(updated, data=final_data)
+        self._set_book(book_id, replace(updated, data=final_data))
         return self._mark_complete(book_id)
 
     def _mark_complete(self, book_id: str) -> BookState:
@@ -919,7 +1054,8 @@ class BatchRunner:
             data = dict(book.data)
             data.pop("needs_input_type", None)
             updated = BookState(book_id, STATUS_COMPLETE, data)
-            self._books[book_id] = updated
+
+        self._set_book(book_id, updated)
         self._cleanup_library_copies(book_id, updated)
         return updated
 

@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from pipeline.atomic_write import atomic_read_json, atomic_write_json
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class StateSchemaVersionError(Exception):
@@ -38,11 +38,23 @@ class StateSchemaVersionError(Exception):
     """
 
 
+def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """v2 adds an optional per-book `"snapshot"` key (full `status`/`data`,
+    written by `save_book_snapshot()`) alongside the stage-completion flags
+    a v1 file already had -- needed for full "Welcome back" resume
+    (docs/requirements/06-safety-error-handling.md §Long-run resilience),
+    not just detection. No shape change to existing v1 data: an old book
+    entry simply has no `"snapshot"` yet, which `incomplete_book_snapshots()`
+    already treats as "nothing to restore" rather than an error."""
+    data["schema_version"] = 2
+    return data
+
+
 # One migration function per version step: _MIGRATIONS[N] moves a dict from
 # schema_version N to N+1, returning it with schema_version bumped to N+1.
-# Empty for now -- nothing to migrate from at v1. A real future schema
-# change adds one entry here, not a rewrite of the load path itself.
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _migrate_v1_to_v2,
+}
 
 
 def _default_state() -> dict[str, Any]:
@@ -155,3 +167,54 @@ class StateRepository:
         books = self._data.setdefault("books", {})
         book = books.setdefault(book_id, {})
         book[stage] = {"status": "incomplete"}
+
+    def save_book_snapshot(
+        self, book_id: str, status: str, data: dict[str, Any]
+    ) -> None:
+        """Persist a book's full `status`/`data` (not just per-stage
+        completion flags) -- what full "Welcome back" resume rebuilds a
+        live `BatchRunner` from on the next launch
+        (`pipeline/batch_runner.py::BatchRunner.restore_books()`). Called
+        by `BatchRunner._set_book()` on every status change, the same way
+        `mark_stage_complete()` already keeps stage flags current."""
+        books = self._data.setdefault("books", {})
+        book = books.setdefault(book_id, {})
+        book["snapshot"] = {"status": status, "data": data}
+
+    def incomplete_book_snapshots(self) -> list[dict[str, Any]]:
+        """The full-resume counterpart to `incomplete_book_ids()`: the same
+        "not yet through `cleanup`" filter, but returning each book's
+        persisted `{"book_id", "status", "data"}` snapshot instead of just
+        its id -- what `BatchRunner.restore_books()` needs to actually
+        rebuild the book, not just know it exists. A book with no snapshot
+        yet (a v1 file migrated to v2, or one that died before its first
+        status change ever got persisted) is skipped -- there is nothing
+        to restore it *from*, so it is silently dropped from resume rather
+        than reconstructed with invented data. It stays in `state.json`
+        and is picked up by "clean up stuck in-progress state"'s blanket
+        sweep if she uses that instead."""
+        books = self._data.get("books", {})
+        result: list[dict[str, Any]] = []
+        for book_id, stages in books.items():
+            if stages.get("cleanup", {}).get("status") == "complete":
+                continue
+            snapshot = stages.get("snapshot")
+            if not snapshot:
+                continue
+            result.append(
+                {
+                    "book_id": book_id,
+                    "status": snapshot["status"],
+                    "data": snapshot["data"],
+                }
+            )
+        return result
+
+    def reset_all(self) -> None:
+        """Wipe all book tracking -- the state-file half of "clean up
+        stuck in-progress state" (docs/BACKLOG.md Epic 9): a blunt full
+        reset, not a per-book operation, so it never needs to correlate
+        with any live tracked `Book` (the case that motivated it: files
+        deleted outside the app, with no live book behind them anymore).
+        Leaves `schema_version` untouched."""
+        self._data["books"] = {}

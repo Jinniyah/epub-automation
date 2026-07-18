@@ -138,4 +138,31 @@ describe("FixInfoFlow", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("marks 'Review' as the current step throughout, with this book active", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(client, "retagBook").mockResolvedValue({ ok: true, status: "complete" });
+    render(
+      <FixInfoFlow
+        book={book({ series: undefined, series_number: undefined })}
+        onDone={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByText("Review").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Author -> Title
+    await user.click(screen.getByRole("button", { name: "Next" })); // Title -> submits (fixing phase)
+    await screen.findByText("✅ Fixed!");
+
+    expect(screen.getByText("Review").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+  });
 });

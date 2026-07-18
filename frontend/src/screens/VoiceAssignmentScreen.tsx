@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
 import { Overlay } from "../components/shared/Overlay";
 import { RemoveBookButton } from "../components/shared/RemoveBookButton";
+import { StepProgress } from "../components/shared/StepProgress";
 import { VoicePicker } from "../components/shared/VoicePicker";
 import { assignVoice, getVoices, startGeneration } from "../api/client";
 import type { Book, VoiceChoice } from "../api/types";
@@ -89,6 +90,7 @@ export function VoiceAssignmentScreen({
         <h1 id="voice-single-heading" className="sr-only">
           Pick a voice
         </h1>
+        <StepProgress current="choose_voice" activeBookTitle={row.title} />
         <div className="button-row">
           <button
             type="button"
@@ -115,6 +117,12 @@ export function VoiceAssignmentScreen({
   return (
     <main aria-labelledby="voice-table-heading">
       <h1 id="voice-table-heading">🎙️ Choose a voice for each book</h1>
+      <StepProgress
+        current="choose_voice"
+        activeBookTitle={
+          rows.find((r) => r.bookId === (changingVoiceFor ?? editingMetadataFor))?.title
+        }
+      />
       <div className="table-wrap">
         <table>
           <caption className="sr-only">Voice for each book in this batch</caption>

@@ -1,4 +1,5 @@
 import { BigButton } from "../components/shared/BigButton";
+import { StepProgress } from "../components/shared/StepProgress";
 import type { CollisionDetail } from "../api/types";
 
 export interface CollisionPromptProps {
@@ -21,6 +22,7 @@ export function CollisionPrompt({ bookTitle, artifact, onChoice }: CollisionProm
       <h1 id="collision-heading">
         You already have a {label} called "{bookTitle}"
       </h1>
+      <StepProgress current="convert" activeBookTitle={bookTitle} />
       <p>Want to replace it or keep both?</p>
       <div className="button-row">
         <BigButton variant="primary" onClick={() => onChoice("keep_both")}>

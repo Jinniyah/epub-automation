@@ -267,6 +267,49 @@ ESLint rule that enforces it in CI rather than leaving it to habit
 
 ## Screen-by-screen flow
 
+### Step progress indicator (cross-cutting, added docs/BACKLOG.md Epic 9)
+
+A persistent "you are here" wizard bar across the main per-batch flow —
+real user feedback: no orientation cue existed anywhere, a real gap for
+any first-time user and specifically a risk for the FMS persona
+(difficulty holding a multi-step process in mind) this app is designed
+around.
+
+```
+① Add Books   ② Confirm Info   ③ Choose Voice   ④ Convert   ⑤ Review
+                                  📖 Fated
+```
+
+- **Five steps, matching the screens that already exist:** Add Books →
+  Confirm Info → Choose Voice → Convert → Review. Shown only during the
+  active batch flow — **not** during onboarding (Folders / AI Helper /
+  Welcome back) or the "⚙️ More options" sub-screens, since those are
+  one-time setup rather than part of the per-batch pipeline.
+- **Active book, per step:** the stepper tracks whichever book she's
+  *currently on or has selected*, not a batch-wide aggregate. Add Books
+  is batch-wide by nature (no book named). Confirm Info and Review both
+  already loop one book at a time, so the book in front of her is
+  trivially the active one — including when the metadata-edit overlay is
+  reopened later from the voice table. Choose Voice: single-book mode,
+  that one book; multi-book table mode, whichever row she most recently
+  opened (title click or "Change Voice") — nothing named until she's
+  clicked something. Convert: `AudioStage` generation is serial
+  (ADR-0009), so there's always a real, single currently-generating book.
+- **Active book renders on its own line below the step row**, not
+  inlined into the step label (never "Step 3 of 5: Choose a voice for
+  'Fated'" as one string) — keeps the step label itself short and
+  constant regardless of title length, and reads as two distinct facts
+  rather than one run-on sentence.
+- **Accessibility:** current step is never color-only — a real text
+  label per step (not just a numbered dot), plus `aria-current="step"`
+  for screen readers. A `<nav>`/`<ol>` landmark is the semantic
+  container; the active-book line is tied to it via `aria-describedby`
+  so a screen-reader user gets both facts together, not the book title
+  as a disconnected line of text.
+- **Placement:** its own thin band, sitting below each screen's own
+  `<h1>` — doesn't crowd the header card (§Visual design system) or
+  collide with the `.screen-actions` sticky footer.
+
 ### First launch only: one-time setup
 ```
 Where are your book files?     [ Choose Folder... ]
@@ -363,14 +406,24 @@ You were in the middle of:
   metadata review if identification wasn't finished, and so on. This
   reuses the same state-file-driven reconstruction already required for
   the status endpoint (see `01-architecture.md` §Status endpoint
-  contract) — not a separate resume mechanism.
+  contract) — not a separate resume mechanism. **Implemented as full
+  resume, docs/BACKLOG.md Epic 9:** the live runner is actually rebuilt
+  from `state.json` at process startup (`06-safety-error-handling.md`
+  §Long-run resilience), so "Continue" reflects a genuinely reconstructed
+  book, not just a count. A book that was mid-audio-generation resumes at
+  the voice picker (audio itself resumes via the existing per-chunk
+  disk-file-size check, not exact persisted progress); a book mid-
+  identification restarts that fast step from scratch.
 - **"Not right now"** goes to Screen 1 without discarding anything. The
   pending book stays exactly as it was; this screen simply reappears
   next launch as long as it's still incomplete. Nothing here is
   destructive — if she actually wants to abandon the book rather than
   finish it later, that's still a **Cancel**, done from within the
   resumed screen itself (see `06-safety-error-handling.md` §Cancel
-  Design), not a separate discard option bolted onto this screen.
+  Design), not a separate discard option bolted onto this screen. For the
+  case Cancel can't reach either — the source files are already gone, or
+  she just wants a clean slate rather than resuming — see "⚙️ More
+  options" → "Nuke everything in progress" below.
 - If more than one book is pending (e.g. she quit partway through a
   3-book batch), list all of them the same way the multi-book voice
   table does — one row per book, same big click targets, same pattern,
@@ -851,6 +904,33 @@ Add a new word:
     two cases above must never be conflated into one ambiguous "nothing
     here" message, since one means "you haven't gotten there yet" and the
     other means "something broke and support may be needed."
+
+**Nuke everything in progress:** (added docs/BACKLOG.md Epic 9, real user
+report — her own words for the button)
+```
+🧹 Nuke everything in progress
+
+  [confirm dialog]
+  Clear out everything in progress?
+  This won't touch audiobooks you've already finished — just
+  books that got stuck partway through.
+           [ Yes, clear it out ]      [ Never mind ]
+```
+- A blunt, single-purpose escape hatch for when "Welcome back"'s full
+  resume (see that screen's spec above) can't help — the source EPUBs
+  are already gone, deleted outside the app — or she just doesn't want
+  to resume. Fifth entry on the "⚙️ More options" hub, alongside the
+  four above.
+- **Blunt on purpose:** copy stays short and plain, not a technical
+  explanation of `Library/*` staging folders or `state.json` — matches
+  this app's persona far better than asking her to understand what's
+  being cleared.
+- Confirm-gated the same way Cancel already is (`06-safety-error-
+  handling.md` §Cancel design) — destructive, but the confirmation
+  itself stays as short as the button, not a wall of caveats.
+- Never touches already-finished audiobooks in her output folder, or
+  `audit_log.csv` (a permanent record, not working state) — only
+  in-progress working files and pending-book tracking.
 
 ## Progress reporting mechanism
 

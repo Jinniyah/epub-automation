@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–8 complete (2026-07-06 to 2026-07-11). Epic 8.5 (real-user feedback pass) nearly done — auto-load-from-folder and Field Correction Popup format hints are the only items still open; everything else is done and build/test-verified via real `npm run build`/`lint`/`test` passes (2026-07-16/17). Epic 8.6 (visual polish, EMS ReadyKit-informed) complete and verified 2026-07-16, plus one post-verification bug found and fixed 2026-07-17. **Epics 0–8.6's narrative detail was compacted 2026-07-17** — decisions/gotchas kept, blow-by-blow session narration dropped; full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. Epic 9 (accessibility verification) is next — starts the following session, own checklist kept at full detail below since it's about to be actively worked.
+**Status:** Epics 0–8 complete (2026-07-06 to 2026-07-11). Epic 8.5 (real-user feedback pass) nearly done — auto-load-from-folder and Field Correction Popup format hints are the only items still open; everything else is done and build/test-verified via real `npm run build`/`lint`/`test` passes (2026-07-16/17). Epic 8.6 (visual polish, EMS ReadyKit-informed) complete and verified 2026-07-16, plus one post-verification bug found and fixed 2026-07-17. **Epics 0–8.6's narrative detail was compacted 2026-07-17** — decisions/gotchas kept, blow-by-blow session narration dropped; full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, unassisted dyslexic-reader test, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -287,8 +287,82 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 
 ## Epic 9 — Accessibility Verification
 
-- [ ] **Persistent step/progress indicator ("you are here" wizard bar)
-  across the main batch flow.** Added 2026-07-17, real user feedback:
+- [x] **"More options": a way to clear stuck in-progress book state
+  ("nuke everything in progress").** **Built and verified 2026-07-18**
+  (448 backend tests / 96% coverage, 216 frontend tests / 32 files, both
+  clean via real `pytest --cov` and `npm run build && npm run lint &&
+  npm test` passes): `POST /api/cleanup-in-progress`
+  (`backend/bridge.py::reset_all_in_progress()`,
+  `pipeline/state_manager.py::StateRepository.reset_all()`), a
+  confirm-gated "🧹 Nuke everything in progress" button on
+  `MoreOptionsScreen` reusing the existing `Overlay` confirm-dialog
+  pattern. Real report (2026-07-17): the
+  app opened to "Welcome back," reporting 3 books still waiting -- but
+  she'd already deleted those EPUBs from the source folder herself,
+  outside the app. There was no way to make that message go away; the
+  stuck "waiting" count has no clear/reset action anywhere. **Directly
+  related to the "Welcome back full resume" item below, but a
+  different, simpler fix shape:** that item is about *properly
+  resuming* pending work; this one is the necessary escape hatch for
+  when resuming isn't possible (files already gone) or just isn't
+  wanted -- a blunt "start over" action rather than asking her to
+  diagnose or hand-edit state files herself, which fits this app's
+  persona far better than a fiddly per-book cleanup UI would.
+  **Requested shape, in her own words:** a "clean up" button in the
+  "⚙️ More options" hub, plain and blunt ("nuke everything in
+  progress"), not a technical explanation of what it does under the
+  hood.
+  - **Scope — decided 2026-07-17 (direct request):** "clean up" does
+    both. It deletes any leftover files sitting in the
+    `Library\00-Incoming → 01-Renamed → 02-Sanitized → 03-Audio`
+    staging folders, *and* it clears whatever tracking makes the app
+    think books are still pending (i.e. resets `state.json` so
+    `StateRepository.incomplete_book_ids()` returns empty and
+    "Welcome back" stops nagging). A genuine full reset, not just a
+    flag clear -- matches her own "nuke everything in progress"
+    framing exactly.
+  - **Backend mechanism — decided 2026-07-17 (direct request):**
+    best-effort, catch-and-continue -- attempt to delete each staging
+    folder's contents, and if an individual delete fails (already
+    gone, in use, permissions), swallow the error and keep going
+    rather than aborting the whole operation. In practice this means
+    the new route/function doesn't need to correlate with live
+    tracked `Book` objects at all (the concern raised in the previous
+    version of this note): it's a genuinely blanket sweep across all
+    four `Library` stage folders regardless of what `BatchRunner`
+    currently knows about, which is exactly right for the case that
+    prompted this -- files deleted outside the app, with no live
+    `Book` behind them anymore. Likely implementation:
+    `shutil.rmtree(folder, ignore_errors=True)` per stage folder
+    (or an explicit per-item `try`/`except (OSError, PermissionError)`
+    loop if per-item failure visibility is wanted later, e.g. for a
+    support-bundle log entry), then recreate each folder empty, plus
+    a `state.json` reset/rewrite clearing pending-book tracking. This
+    is a genuinely new backend route, not a composition of the
+    existing per-book `cancel` route -- `cancel` was never built to
+    delete arbitrary leftover files across all four stage folders,
+    only a single book's own working files, and it always requires an
+    actual tracked `Book` to operate on.
+  - **Confirmation:** destructive, so needs the same
+    confirm-before-firing pattern Cancel already uses -- but the
+    confirmation copy itself should stay just as blunt and short as
+    the button, not a wall of caveats.
+  - **Leave the audit log alone** — it's a permanent record, not
+    working state; "clean up" should only touch pipeline/state
+    tracking and the staging folders, never `audit_log.csv`.
+  - Needs a `03-gui-ux-design.md` update once built (no current screen
+    spec mentions a reset/clear action at all) and a
+    `01-architecture.md` route-reference update once the new route
+    exists.
+- [x] **Persistent step/progress indicator ("you are here" wizard bar)
+  across the main batch flow.** **Built and verified 2026-07-18**
+  (`frontend/src/components/shared/StepProgress.tsx`, wired into
+  `AddBooksScreen`/`ConfirmMetadataScreen`/`VoiceAssignmentScreen`/
+  `WorkingScreen`/`CollisionPrompt`/`ReviewScreen`/`FixInfoFlow` per the
+  decisions below; the multi-book "most recently selected row" state
+  turned out to already exist as `VoiceAssignmentScreen`'s own
+  `changingVoiceFor`/`editingMetadataFor` local state, so no new state
+  was actually needed there). Added 2026-07-17, real user feedback:
   almost every wizard/multi-step process has a visible "step N of M"
   cue at the top so the person knows where they are and what's next;
   this app has never had one, which is a real orientation gap for any
@@ -361,12 +435,31 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
   - Needs a `03-gui-ux-design.md` update alongside the code once built
     (this doc's own rule: keep requirements/design/backlog reconciled),
     since no current screen spec mentions a step indicator at all.
-- [ ] `axe-core` + `eslint-plugin-jsx-a11y` wired into CI
+- [x] `axe-core` + `eslint-plugin-jsx-a11y` wired into CI — **already
+  true**, confirmed 2026-07-18 by reading `.github/workflows/ci.yml`: the
+  frontend `lint` job already runs `eslint-plugin-jsx-a11y` and the
+  `coverage` job already runs the axe-core assertions present in every
+  screen's own test file. No code change needed, just this checkbox.
 - [ ] Manual keyboard-only pass, all screens
 - [ ] Real NVDA pass + Narrator sanity check
 - [ ] Real dyslexic-reader test (unassisted)
-- [ ] **"Welcome back" Continue silently drops unresolved books —
-  confirmed live 2026-07-16.** Reproduced via real screenshots: the
+- [x] **"Welcome back" Continue silently drops unresolved books —
+  confirmed live 2026-07-16.** **Fixed via the "Full fix" option below,
+  built and verified 2026-07-18:** `state.json` now persists each book's
+  full status/data as a `"snapshot"` (schema v2,
+  `pipeline/state_manager.py::StateRepository.save_book_snapshot()`/
+  `incomplete_book_snapshots()`), and `backend/app.py::_build_app_state()`
+  rebuilds a live `BatchRunner` from those snapshots at process startup
+  (`BatchRunner.restore_books()`) before any request is served — so by
+  the time "Continue" or the status poll is ever hit, the runner already
+  has the real data. A `generating`/`paused` book restores to
+  `voice_pick` (audio resumes via the existing per-chunk disk-file-size
+  check, not persisted chunk counts); an `identifying` book restores to
+  `pending` (rename/sanitize copy their source, never delete it, so
+  redoing is always safe). Found and fixed a related pre-existing gap in
+  the same pass: `_finalize_cancel` never marked the `cleanup` stage
+  complete, so a cancelled book would have kept reappearing as "pending"
+  forever. Reproduced via real screenshots: the
   welcome-back screen correctly degrades to a plain count ("2 books
   you hadn't finished yet") when it can't match the pending book ids
   `GET /api/welcome-back` returns against the live status poll's
@@ -381,7 +474,15 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
   `CLAUDE.md`'s "Welcome back" full resume item and this file's own
   Open Items table — now confirmed live, not just theoretical. Folded
   into this epic per direct request (2026-07-16) rather than left
-  unowned. **Fix size still undecided — pick one before starting:**
+  unowned. **A second, real report of the same underlying gap landed
+  2026-07-17** (see the "clean up stuck in-progress state" item
+  above, first in this epic's list, whose scope and mechanism are now
+  both decided) -- worth deciding both fixes together, since "clean
+  up" is likely the simpler complement to whichever resume fix (below)
+  actually gets built, not a substitute for it: even a full resume fix
+  still needs a manual escape hatch for the case where the person
+  deleted the files herself and there's genuinely nothing to resume.
+  **Fix size still undecided — pick one before starting:**
   - **Quick UX patch:** when Continue can't actually find the books it
     promised, say so honestly (e.g. "We couldn't reload your previous
     books — please add them again") instead of silently landing on an
@@ -455,8 +556,9 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 | Her-facing copy wording, unassisted dry-run test | 9 |
 | Screen-reader tester confirmation | 9 |
 | Per-series voice memory, second look | 9 (same decision as above, revisit together if ever) |
-| "Welcome back" full state-file-driven resume | 9 — folded in 2026-07-16 after a live reproduction; two candidate fix sizes, still undecided. |
-| Persistent step/progress indicator across the main batch flow | 9 — added 2026-07-17; multi-book "active book" behavior and placement both decided the same day. |
+| "Welcome back" full state-file-driven resume | 9 — done, built and verified 2026-07-18 (`state.json` schema v2 book snapshots + `BatchRunner.restore_books()` at process startup). |
+| "More options": clean up stuck in-progress book state | 9 — done, built and verified 2026-07-18 (`POST /api/cleanup-in-progress`, `MoreOptionsScreen`'s "🧹 Nuke everything in progress"). |
+| Persistent step/progress indicator across the main batch flow | 9 — done, built and verified 2026-07-18 (`StepProgress` shared component). |
 | Vite dev-server Origin/CSRF proxy config | 7 — done |
 | Screen 1 settings entry points → "More options" hub | 8.5 — done |
 | Header (brand title + Home button) redesign | 8.5 — done |

@@ -342,4 +342,22 @@ describe("WorkingScreen", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("marks 'Convert' as the current step, with the active book named", () => {
+    render(
+      <WorkingScreen
+        books={[book()]}
+        activeBookId="b1"
+        message="Making the audiobook now..."
+        onChanged={() => {}}
+        onQuit={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Convert").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+  });
 });

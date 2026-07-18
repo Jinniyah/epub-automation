@@ -796,6 +796,91 @@ def test_welcome_back_route_lists_a_book_mid_pipeline(client: FlaskClient) -> No
     assert added["book_id"] in resp.get_json()["pending_book_ids"]
 
 
+def test_a_real_process_restart_resumes_a_pending_book(tmp_path: Path) -> None:
+    """The real regression this epic fixes: "Continue" used to land on an
+    empty Screen 1 because a fresh `BatchRunner` never knew about books
+    `state.json` still listed as pending (docs/BACKLOG.md Epic 9). Builds
+    two entirely separate Flask apps against the same `appdata_dir`,
+    simulating a real backend process restart -- not just reusing one
+    app's in-memory runner."""
+    app1 = create_app(appdata_dir=tmp_path, tts_engine=_FakeTTSEngine())
+    app1.config["TESTING"] = True
+    client1 = app1.test_client()
+    added = _add_book_via_api(client1)
+    client1.post("/api/batch/start")
+    _wait_for_state(client1, lambda s: s["needs_input"] is not None)
+
+    # A brand new app instance, same on-disk appdata_dir -- what actually
+    # happens on a real relaunch.
+    app2 = create_app(appdata_dir=tmp_path, tts_engine=_FakeTTSEngine())
+    app2.config["TESTING"] = True
+    client2 = app2.test_client()
+
+    welcome_back = client2.get("/api/welcome-back").get_json()
+    assert added["book_id"] in welcome_back["pending_book_ids"]
+
+    status = _poll_status(client2)
+    book = next(b for b in status["books"] if b["id"] == added["book_id"])
+    assert book["status"] == "needs_input"
+    assert book.get("title") == "Fated"
+
+
+# ---------------------------------------------------------------------------
+# "More options" -> clean up stuck in-progress state
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_in_progress_clears_pending_state_and_library_folders(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    _add_book_via_api(client)
+    client.post("/api/batch/start")
+    _wait_for_state(client, lambda s: s["needs_input"] is not None)
+    incoming = tmp_path / "Library" / "00-Incoming"
+    assert any(incoming.iterdir())
+
+    resp = client.post("/api/cleanup-in-progress")
+
+    assert resp.get_json() == {"ok": True}
+    assert list(incoming.iterdir()) == []
+    welcome_back = client.get("/api/welcome-back").get_json()
+    assert welcome_back == {"pending_book_ids": []}
+    status = _poll_status(client)
+    assert status["books"] == []
+
+
+def test_cleanup_in_progress_is_a_blanket_sweep_even_with_no_live_runner_knowledge(
+    tmp_path: Path,
+) -> None:
+    """The exact case that motivated this route: files deleted outside
+    the app, with no live tracked `Book` behind them anymore -- the sweep
+    must still succeed and clear the stray files."""
+    library_root = tmp_path / "Library"
+    stray = library_root / "02-Sanitized" / "orphaned.epub"
+    stray.parent.mkdir(parents=True)
+    stray.write_bytes(b"not tracked by any live Book")
+
+    app = create_app(appdata_dir=tmp_path, tts_engine=_FakeTTSEngine())
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    resp = client.post("/api/cleanup-in-progress")
+
+    assert resp.get_json() == {"ok": True}
+    assert not stray.exists()
+
+
+def test_cleanup_in_progress_never_touches_the_audit_log(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    audit_log_path = tmp_path / "audit_log.csv"
+    audit_log_path.write_text("stage,voice\nrename,\n", encoding="utf-8")
+
+    client.post("/api/cleanup-in-progress")
+
+    assert audit_log_path.read_text(encoding="utf-8") == "stage,voice\nrename,\n"
+
+
 # ---------------------------------------------------------------------------
 # Quit
 # ---------------------------------------------------------------------------

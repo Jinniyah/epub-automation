@@ -58,9 +58,10 @@ def _build_runner(
     state_repo: StateRepository,
     audit_log: AuditLogRepository,
     tts_engine: TTSEngineLike,
+    restore: bool = False,
 ) -> BatchRunner:
     output_folder = Path(settings.get("output_folder") or (appdata_dir / "Output"))
-    return BatchRunner(
+    runner = BatchRunner(
         library_root=appdata_dir / "Library",
         output_folder=output_folder,
         report_dir=appdata_dir / "logs",
@@ -70,6 +71,14 @@ def _build_runner(
         tts_engine=tts_engine,
         max_files=DEFAULT_MAX_FILES,
     )
+    if restore:
+        # Full "Welcome back" resume (docs/BACKLOG.md Epic 9) --
+        # `restore=True` only on the one runner built at process startup
+        # (`_build_app_state()`), never on `AppState.new_runner()`'s
+        # "batch done -> fresh runner" reset, which should always start
+        # genuinely empty.
+        runner.restore_books(state_repo.incomplete_book_snapshots())
+    return runner
 
 
 @dataclass
@@ -119,6 +128,7 @@ def _build_app_state(
             state_repo=state_repo,
             audit_log=audit_log,
             tts_engine=engine,
+            restore=True,
         ),
     )
 
@@ -546,18 +556,38 @@ def create_app(
         return jsonify({"ok": True, "path": str(out_path)})
 
     # ------------------------------------------------------------------
-    # "Welcome back" -- detection only for now. Full state-file-driven
-    # resume (rebuilding a live BatchRunner from state.json) is Epic 8
-    # scope, once the actual "Welcome back" screen exists to drive it
-    # (docs/BACKLOG.md) -- this endpoint answers "is anything pending"
-    # so that screen has something real to build against, without this
-    # epic needing to solve full runner reconstruction.
+    # "Welcome back" -- full state-file-driven resume (docs/BACKLOG.md
+    # Epic 9): `_build_app_state()` already rebuilds the live `BatchRunner`
+    # from `state.json` at process startup (`_build_runner(restore=True)`),
+    # so by the time this route (or `/api/status`) is ever polled, the
+    # runner already knows about every book `incomplete_book_ids()` lists
+    # -- this endpoint just answers "is anything pending" so the screen
+    # knows whether to show at all.
     # ------------------------------------------------------------------
 
     @app.get("/api/welcome-back")
     def welcome_back_route() -> Response:
         pending = _state().state_repo.incomplete_book_ids()
         return jsonify({"pending_book_ids": pending})
+
+    # ------------------------------------------------------------------
+    # "More options" -> "clean up stuck in-progress state" (docs/BACKLOG.md
+    # Epic 9, real user report): a blunt, confirm-gated full reset for
+    # when resuming isn't possible (she deleted the source files herself)
+    # or just isn't wanted. Never touches audit_log.csv.
+    # ------------------------------------------------------------------
+
+    @app.post("/api/cleanup-in-progress")
+    def cleanup_in_progress_route() -> Response:
+        state = _state()
+        bridge.reset_all_in_progress(
+            library_root=state.appdata_dir / "Library", state_repo=state.state_repo
+        )
+        # The current in-memory runner may still hold books/files this
+        # just deleted -- replace it rather than leaving it out of sync
+        # with the now-empty state file and Library folders.
+        state.runner = state.new_runner()
+        return jsonify({"ok": True})
 
     # ------------------------------------------------------------------
     # "Quit for now" -- stops the background server itself, not just the

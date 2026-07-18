@@ -162,4 +162,20 @@ describe("ConfirmMetadataScreen", () => {
       screen.queryByRole("button", { name: /^Remove / }),
     ).not.toBeInTheDocument();
   });
+
+  it("marks 'Confirm Info' as the current step, with this book active", () => {
+    render(<ConfirmMetadataScreen book={book()} onConfirmed={() => {}} />);
+
+    expect(screen.getByText("Confirm Info").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+  });
+
+  it("does not render a step indicator in asOverlay mode", () => {
+    render(<ConfirmMetadataScreen book={book()} asOverlay onConfirmed={() => {}} />);
+
+    expect(screen.queryByRole("navigation", { name: "Progress" })).not.toBeInTheDocument();
+  });
 });

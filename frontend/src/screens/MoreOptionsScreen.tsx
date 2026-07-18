@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
+import { Overlay } from "../components/shared/Overlay";
+import { cleanupInProgress } from "../api/client";
 
 export interface MoreOptionsScreenProps {
   onOpenFolders: () => void;
@@ -6,6 +9,37 @@ export interface MoreOptionsScreenProps {
   onOpenAiHelper: () => void;
   onOpenVoiceHistory: () => void;
   onDone: () => void;
+}
+
+function CleanupConfirmDialog({
+  onConfirm,
+  onClose,
+  busy,
+}: {
+  onConfirm: () => void;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  return (
+    <Overlay
+      titleId="cleanup-heading"
+      title="Clear out everything in progress?"
+      onClose={onClose}
+    >
+      <p>
+        This won't touch audiobooks you've already finished — just books that
+        got stuck partway through.
+      </p>
+      <div className="button-row">
+        <BigButton variant="danger" disabled={busy} onClick={onConfirm}>
+          {busy ? "Clearing…" : "Yes, clear it out"}
+        </BigButton>
+        <BigButton variant="plain" disabled={busy} onClick={onClose}>
+          Never mind
+        </BigButton>
+      </div>
+    </Overlay>
+  );
 }
 
 /** "More options" hub (03-gui-ux-design.md §Settings areas) -- reached
@@ -27,6 +61,17 @@ export function MoreOptionsScreen({
   onOpenVoiceHistory,
   onDone,
 }: MoreOptionsScreenProps) {
+  const [confirmingCleanup, setConfirmingCleanup] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+
+  async function handleConfirmCleanup() {
+    setCleaning(true);
+    await cleanupInProgress();
+    setCleaning(false);
+    setConfirmingCleanup(false);
+    onDone();
+  }
+
   return (
     <main aria-labelledby="more-options-heading">
       <h1 id="more-options-heading">More options</h1>
@@ -44,11 +89,22 @@ export function MoreOptionsScreen({
         <BigButton variant="plain" onClick={onOpenVoiceHistory}>
           🎙️ What voice did I use before?
         </BigButton>
+        <BigButton variant="plain" onClick={() => setConfirmingCleanup(true)}>
+          🧹 Nuke everything in progress
+        </BigButton>
       </div>
 
       <BigButton variant="primary" onClick={onDone}>
         Done
       </BigButton>
+
+      {confirmingCleanup ? (
+        <CleanupConfirmDialog
+          busy={cleaning}
+          onConfirm={() => void handleConfirmCleanup()}
+          onClose={() => setConfirmingCleanup(false)}
+        />
+      ) : null}
     </main>
   );
 }

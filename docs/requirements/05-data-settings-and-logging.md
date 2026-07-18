@@ -211,7 +211,34 @@ per file, per stage:
 - Reset to incomplete → for the Cancel flow's cleanup behavior (see
   `06-safety-error-handling.md` §Cancel Design), so a cancelled book is
   correctly re-attempted rather than assumed done or assumed further
-  along than it actually is.
+  along than it actually is. A cancelled book also marks its `cleanup`
+  stage complete at the same time (docs/BACKLOG.md Epic 9) — otherwise it
+  would stay "incomplete" forever and incorrectly keep reappearing as
+  pending on every future launch, since it never reaches the normal
+  `_mark_complete()` path that marks `cleanup` for a finished book.
+
+**Schema v2 addition (docs/BACKLOG.md Epic 9, full "Welcome back"
+resume):** each book entry may also carry a `"snapshot"` key —
+`{"status": ..., "data": ...}`, the book's full in-memory state, not just
+its per-stage completion flags. Written by `StateRepository
+.save_book_snapshot()` on every status-changing mutation
+(`pipeline/batch_runner.py::BatchRunner._set_book()`), deliberately
+*not* on the high-frequency per-chunk audio-progress callback (see that
+method's own docstring for why `chunks_done` doesn't need to be
+persisted for correct resume). `StateRepository
+.incomplete_book_snapshots()` returns every not-yet-`cleanup`-complete
+book's snapshot; `BatchRunner.restore_books()` seeds a freshly-
+constructed, empty runner from that list at process startup
+(`backend/app.py::_build_app_state()`), coarse-graining a `generating`/
+`paused` book to `voice_pick` (audio resumes via `AudioStage`'s own
+existing per-chunk disk-file-size check, not via persisted chunk counts)
+and an `identifying` book to `pending` (rename/sanitize copy their
+source rather than deleting it, so redoing identification from scratch
+is always safe). A book with no snapshot yet (a v1 file migrated to v2,
+or one that died before its first status change was ever persisted) is
+silently skipped by full resume — nothing to reconstruct it from — but
+stays visible to "clean up stuck in-progress state" (docs/BACKLOG.md
+Epic 9), which sweeps by folder contents rather than by snapshot.
 
 ## Write safety: atomic writes required for settings.json and the state file
 

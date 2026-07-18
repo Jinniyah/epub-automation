@@ -150,6 +150,33 @@
   alongside it. Whether she used "Quit for now," the laptop lost power,
   or the process was killed externally, the answer to "is anything
   pending?" comes from the same place and is checked the same way.
+- **Full resume, not just detection (docs/BACKLOG.md Epic 9):** "Continue"
+  genuinely rebuilds the pending books, not just reports how many there
+  are. At process startup, `backend/app.py::_build_app_state()` seeds a
+  fresh `BatchRunner` from the state file's per-book snapshots
+  (`05-data-settings-and-logging.md` §State file's schema v2 addition)
+  before any request is ever served, so by the time "Welcome back" or the
+  normal status poll is checked, the live runner already knows about
+  every pending book — "Continue" itself needed no change; it was always
+  correct once the runner underneath it actually had the data. A book
+  that died mid-audio-generation resumes via the same existing per-chunk
+  disk-file-size check this section's first bullet already describes, not
+  by persisting exact chunk progress. The one case this can't help — a
+  book that died before its very first status change was ever persisted
+  (or a pre-Epic-9 state file with no snapshots at all) — is exactly what
+  "clean up stuck in-progress state" below exists for.
+- **"Clean up stuck in-progress state" — the manual escape hatch
+  (docs/BACKLOG.md Epic 9, real user report):** full resume above still
+  can't help when the underlying files are simply gone (she deleted the
+  source EPUBs herself, outside the app) or she just doesn't want to
+  resume. "⚙️ More options" → a blunt, confirm-gated "clean up" action
+  (`POST /api/cleanup-in-progress`, `backend/bridge.py::
+  reset_all_in_progress()`) does a best-effort, catch-and-continue sweep
+  of every `Library/*` stage folder plus a full state-file reset — a
+  genuinely blanket operation, not correlated with any live tracked
+  `Book`, which is exactly right for the case that prompted it (nothing
+  left to `cancel()`). Never touches `audit_log.csv`, which is a
+  permanent record, not working state.
 - Single-instance lock (see `01-architecture.md`) prevents two copies of
   the app from running simultaneously and corrupting the shared state
   file. **This lock now includes a liveness/staleness check** (resolved

@@ -285,6 +285,15 @@ export function getWelcomeBack(): Promise<WelcomeBackResponse> {
   return getJson<WelcomeBackResponse>("/api/welcome-back");
 }
 
+/** "⚙️ More options" -> "clean up stuck in-progress state"
+ * (docs/BACKLOG.md Epic 9) -- a blunt, confirm-gated full reset of
+ * pending-book tracking and the `Library/*` staging folders, for when
+ * "Welcome back" can't resume (the source files are already gone) or
+ * she just doesn't want it to. */
+export function cleanupInProgress(): Promise<OkResponse> {
+  return postJson<OkResponse>("/api/cleanup-in-progress");
+}
+
 // ---------------------------------------------------------------------------
 // Quit
 // ---------------------------------------------------------------------------

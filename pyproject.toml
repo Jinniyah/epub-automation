@@ -13,10 +13,12 @@ readme = "README.md"
 [tool.black]
 line-length = 88
 target-version = ["py311"]
+extend-exclude = "_removed/"
 
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+extend-exclude = ["_removed"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
@@ -26,6 +28,7 @@ ignore = []
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+exclude = ["_removed/"]
 
 # mutagen ships a py.typed marker but its ID3 frame classes (TIT2/TPE1/...)
 # aren't fully annotated -- unlike ebooklib/bs4 (no py.typed at all, so

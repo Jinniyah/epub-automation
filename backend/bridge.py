@@ -16,6 +16,7 @@ the full response shape this module builds.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -32,6 +33,7 @@ from pipeline.batch_runner import (
     NeedsInputType,
 )
 from pipeline.stage import BookState
+from pipeline.state_manager import StateRepository
 from pipeline.tts_engine import VOICES
 
 
@@ -370,6 +372,42 @@ def build_support_bundle(
         bundle["recent_audit_log_rows"] = []
         bundle["audit_log_error"] = f"Could not read the audit log: {exc}"
     return bundle
+
+
+# ---------------------------------------------------------------------------
+# "More options" -> "clean up stuck in-progress state" (docs/BACKLOG.md
+# Epic 9)
+# ---------------------------------------------------------------------------
+
+_LIBRARY_STAGE_FOLDERS = (
+    "00-Incoming",
+    "01-Renamed",
+    "02-Sanitized",
+    "03-Audio",
+)
+
+
+def reset_all_in_progress(*, library_root: Path, state_repo: StateRepository) -> None:
+    """A blunt, full reset of everything the app considers "in progress" --
+    the real mechanism behind "clean up stuck in-progress state"
+    (docs/BACKLOG.md Epic 9, real user report: a stuck "Welcome back"
+    count with no way to clear it, because she'd deleted the underlying
+    EPUBs herself, outside the app).
+
+    Deliberately a blanket sweep across all four `Library/*` stage
+    folders, not correlated with any live tracked `Book` -- that's exactly
+    right for the case that prompted this (files gone, nothing left to
+    `cancel()`). Best-effort per folder: a delete failure (already gone,
+    in use, permissions) is swallowed and the sweep continues rather than
+    aborting partway through. Never touches `audit_log.csv` -- that's a
+    permanent record, not working state.
+    """
+    for name in _LIBRARY_STAGE_FOLDERS:
+        folder = library_root / name
+        shutil.rmtree(folder, ignore_errors=True)
+        folder.mkdir(parents=True, exist_ok=True)
+    state_repo.reset_all()
+    state_repo.save()
 
 
 def write_support_bundle(path: Path, bundle: dict[str, Any]) -> Path:

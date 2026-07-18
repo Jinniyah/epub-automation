@@ -3,6 +3,7 @@ import { BigButton } from "../components/shared/BigButton";
 import { EditableFieldRow } from "../components/shared/EditableFieldRow";
 import { FieldCorrectionPopup } from "../components/shared/FieldCorrectionPopup";
 import { RemoveBookButton } from "../components/shared/RemoveBookButton";
+import { StepProgress } from "../components/shared/StepProgress";
 import { confirmMetadata, updateBookMetadata } from "../api/client";
 import type { Book, MetadataCorrections } from "../api/types";
 import { formatAuthor, parseAuthor } from "../utils/authorName";
@@ -157,7 +158,15 @@ export function ConfirmMetadataScreen({
 
   return (
     <Wrapper aria-labelledby={asOverlay ? undefined : "confirm-heading"}>
-      {asOverlay ? null : <h1 id="confirm-heading">{heading}</h1>}
+      {asOverlay ? null : (
+        <>
+          <h1 id="confirm-heading">{heading}</h1>
+          <StepProgress
+            current="confirm_info"
+            activeBookTitle={title || book.original_filename}
+          />
+        </>
+      )}
 
       {asOverlay ? (
         <div className="stack">

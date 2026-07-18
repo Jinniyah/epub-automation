@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FieldCorrectionPopup } from "../components/shared/FieldCorrectionPopup";
 import { BigButton } from "../components/shared/BigButton";
+import { StepProgress } from "../components/shared/StepProgress";
 import { openBookFolder, retagBook } from "../api/client";
 import type { Book, MetadataCorrections } from "../api/types";
 import { formatAuthor, parseAuthor } from "../utils/authorName";
@@ -42,6 +43,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
   const [folderError, setFolderError] = useState<string | null>(null);
 
   const currentStep = steps[stepIndex];
+  const activeBookTitle = book.title ?? book.original_filename;
 
   async function submitRetag(finalValues: Record<FieldStep, string>) {
     setPhase("fixing");
@@ -78,6 +80,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
     return (
       <main aria-labelledby="fixing-heading">
         <h1 id="fixing-heading">🔄 Fixing {book.title ?? "the"} files now...</h1>
+        <StepProgress current="review" activeBookTitle={activeBookTitle} />
       </main>
     );
   }
@@ -86,6 +89,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
     return (
       <main aria-labelledby="fixed-heading">
         <h1 id="fixed-heading">✅ Fixed!</h1>
+        <StepProgress current="review" activeBookTitle={activeBookTitle} />
         <button type="button" className="link-button" onClick={() => void openFolder()}>
           📂 See the audiobook files
         </button>
@@ -100,6 +104,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
   return (
     <main aria-labelledby="fixit-heading">
       <h1 id="fixit-heading">Let's fix {book.title ?? "this book"}'s info.</h1>
+      <StepProgress current="review" activeBookTitle={activeBookTitle} />
       <FieldCorrectionPopup
         key={currentStep}
         fieldLabel={LABELS[currentStep]}

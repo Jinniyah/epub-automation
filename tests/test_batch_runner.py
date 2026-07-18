@@ -20,10 +20,12 @@ from pipeline.audit_logger import AuditLogRepository
 from pipeline.batch_runner import (
     STATUS_CANCELLED,
     STATUS_COMPLETE,
+    STATUS_GENERATING,
     STATUS_IDENTIFIED,
     STATUS_IDENTIFYING,
     STATUS_NEEDS_INPUT,
     STATUS_PAUSED,
+    STATUS_PENDING,
     STATUS_VOICE_PICK,
     BatchRunner,
     NeedsInputType,
@@ -866,6 +868,166 @@ def test_cancel_a_book_that_has_not_started_generating_is_immediate(
     updated = runner.request_cancel(id1, keep_partial=True)
 
     assert updated.status == STATUS_CANCELLED
+
+
+def test_cancel_marks_cleanup_complete_so_it_stops_reappearing_pending(
+    tmp_path: Path,
+) -> None:
+    """Pre-existing gap found while building full "Welcome back" resume
+    (docs/BACKLOG.md Epic 9): a cancelled book never reached
+    `_mark_complete()`'s own "cleanup" marking, so it would incorrectly
+    keep reappearing as "pending" forever."""
+    runner = _make_runner(
+        tmp_path, settings={"ai_provider": "none", "clean_language": False}
+    )
+    id1 = _add_book(runner, tmp_path)
+    _run_identification_and_confirm(runner, [id1])  # voice_pick, no auto-start
+
+    runner.request_cancel(id1, keep_partial=True)
+
+    reloaded = StateRepository(tmp_path / "state.json")
+    reloaded.load()
+    assert reloaded.incomplete_book_ids() == []
+    assert reloaded.incomplete_book_snapshots() == []
+
+
+# ---------------------------------------------------------------------------
+# Full "Welcome back" resume -- restore_books() (docs/BACKLOG.md Epic 9)
+# ---------------------------------------------------------------------------
+
+
+def test_restore_books_coarse_grains_generating_and_paused_to_voice_pick(
+    tmp_path: Path,
+) -> None:
+    runner = _make_runner(tmp_path)
+
+    runner.restore_books(
+        [
+            {
+                "book_id": "b1",
+                "status": STATUS_GENERATING,
+                "data": {"title": "A", "chunks_done": 3, "chunks_total": 10},
+            },
+            {
+                "book_id": "b2",
+                "status": STATUS_PAUSED,
+                "data": {"title": "B", "chunks_done": 1, "chunks_total": 5},
+            },
+        ]
+    )
+
+    assert _status_of(runner, "b1") == STATUS_VOICE_PICK
+    assert _status_of(runner, "b2") == STATUS_VOICE_PICK
+    # Stale in-flight progress fields are dropped -- a fresh voice_pick
+    # re-entry recomputes real progress from disk, not from these.
+    assert "chunks_done" not in _data_of(runner, "b1")
+    assert "chunks_total" not in _data_of(runner, "b1")
+    assert _data_of(runner, "b1")["title"] == "A"
+
+
+def test_restore_books_coarse_grains_identifying_to_pending(tmp_path: Path) -> None:
+    runner = _make_runner(tmp_path)
+
+    runner.restore_books(
+        [
+            {
+                "book_id": "b1",
+                "status": STATUS_IDENTIFYING,
+                "data": {"filename": "x.epub"},
+            }
+        ]
+    )
+
+    assert _status_of(runner, "b1") == STATUS_PENDING
+
+
+def test_restore_books_keeps_inert_statuses_verbatim(tmp_path: Path) -> None:
+    runner = _make_runner(tmp_path)
+
+    runner.restore_books(
+        [
+            {
+                "book_id": "b1",
+                "status": STATUS_NEEDS_INPUT,
+                "data": {
+                    "needs_input_type": NeedsInputType.CONFIRM_METADATA,
+                    "title": "A",
+                },
+            },
+            {
+                "book_id": "b2",
+                "status": STATUS_VOICE_PICK,
+                "data": {"title": "B", "voice": "af_heart"},
+            },
+        ]
+    )
+
+    assert _status_of(runner, "b1") == STATUS_NEEDS_INPUT
+    assert _data_of(runner, "b1")["needs_input_type"] == NeedsInputType.CONFIRM_METADATA
+    assert _status_of(runner, "b2") == STATUS_VOICE_PICK
+    assert _data_of(runner, "b2")["voice"] == "af_heart"
+
+
+def test_full_resume_round_trip_from_a_real_paused_book(tmp_path: Path) -> None:
+    """The real end-to-end case: pause a book mid-generation, then rebuild
+    a brand new `BatchRunner` from a brand new `StateRepository` loaded
+    from the same on-disk state file -- simulating a real process restart,
+    not just calling `restore_books()` with hand-built data."""
+    engine = _FakeTTSEngine()
+    engine.gate.clear()
+    runner = _make_runner(
+        tmp_path,
+        tts_engine=engine,
+        settings={"ai_provider": "none", "clean_language": False},
+    )
+    book_id = _add_book(runner, tmp_path, chapters=[("Chapter 1", _MULTI_CHUNK_TEXT)])
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")
+    engine.entered.wait(timeout=5)
+    runner.request_pause(book_id)
+    engine.gate.set()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_PAUSED)
+    title = _data_of(runner, book_id)["title"]
+
+    fresh_state_repo = StateRepository(tmp_path / "state.json")
+    fresh_state_repo.load()
+    fresh_runner = BatchRunner(
+        library_root=tmp_path / "Library",
+        output_folder=tmp_path / "Output",
+        report_dir=tmp_path / "logs",
+        state_repo=fresh_state_repo,
+        audit_log=AuditLogRepository(tmp_path / "audit_log.csv"),
+        settings={"ai_provider": "none", "clean_language": False},
+        tts_engine=_FakeTTSEngine(),
+    )
+
+    fresh_runner.restore_books(fresh_state_repo.incomplete_book_snapshots())
+
+    assert _status_of(fresh_runner, book_id) == STATUS_VOICE_PICK
+    assert _data_of(fresh_runner, book_id)["title"] == title
+
+
+def test_a_book_completed_before_restart_is_not_restored(tmp_path: Path) -> None:
+    runner = _make_runner(
+        tmp_path, settings={"ai_provider": "none", "clean_language": False}
+    )
+    book_id = _add_book(runner, tmp_path)
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")  # single-book -> auto-generates
+    _wait_until(
+        lambda: _data_of(runner, book_id).get("needs_input_type")
+        == NeedsInputType.REVIEW_RESULT
+    )
+    runner.review_result(book_id, looks_good=True)
+
+    fresh_state_repo = StateRepository(tmp_path / "state.json")
+    fresh_state_repo.load()
+
+    assert fresh_state_repo.incomplete_book_snapshots() == []
 
 
 # ---------------------------------------------------------------------------

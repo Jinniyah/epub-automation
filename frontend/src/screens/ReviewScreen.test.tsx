@@ -101,4 +101,14 @@ describe("ReviewScreen", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("marks 'Review' as the current step, with this book active", () => {
+    render(<ReviewScreen book={book()} onDone={() => {}} onFixIt={() => {}} />);
+
+    expect(screen.getByText("Review").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+  });
 });

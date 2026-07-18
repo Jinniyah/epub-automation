@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { BigButton } from "../components/shared/BigButton";
 import { LiveRegion } from "../components/shared/LiveRegion";
+import { StepProgress } from "../components/shared/StepProgress";
 import { ToggleSwitch } from "../components/shared/ToggleSwitch";
 import { addBooks, getDiskSpace, removeBook, startBatch, updateSettings } from "../api/client";
 import type { Book, DiskSpaceReport } from "../api/types";
@@ -113,6 +114,7 @@ export function AddBooksScreen({
   return (
     <main aria-labelledby="add-books-heading">
       <h1 id="add-books-heading">Add your books</h1>
+      <StepProgress current="add_books" />
 
       <div
         className="dropzone"

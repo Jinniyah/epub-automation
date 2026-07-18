@@ -216,4 +216,23 @@ describe("AddBooksScreen", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("marks 'Add Books' as the current step, batch-wide with no active book", () => {
+    vi.spyOn(client, "getDiskSpace").mockResolvedValue({
+      estimated_total_bytes: 0,
+      any_insufficient: false,
+      checked_paths: [],
+    });
+    render(
+      <AddBooksScreen books={[book()]} fixNames cleanLanguage {...noopHandlers()} />,
+    );
+
+    expect(screen.getByText("Add Books").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByRole("navigation", { name: "Progress" })).not.toHaveAttribute(
+      "aria-describedby",
+    );
+  });
 });

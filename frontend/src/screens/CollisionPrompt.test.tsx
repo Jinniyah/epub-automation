@@ -32,4 +32,14 @@ describe("CollisionPrompt", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("marks 'Convert' as the current step, since a collision pauses mid-generation", () => {
+    render(<CollisionPrompt bookTitle="Fated" artifact="epub" onChoice={() => {}} />);
+
+    expect(screen.getByText("Convert").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(screen.getByText(/📖 Fated/)).toBeInTheDocument();
+  });
 });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
+import { StepProgress } from "../components/shared/StepProgress";
 import { openBookFolder, openOutputFolder, submitReview } from "../api/client";
 import type { Book } from "../api/types";
 import { formatAuthor } from "../utils/authorName";
@@ -53,6 +54,7 @@ export function ReviewScreen({ book, onDone, onFixIt }: ReviewScreenProps) {
   return (
     <main aria-labelledby="review-heading">
       <h1 id="review-heading">✅ {book.title ?? book.original_filename} is ready!</h1>
+      <StepProgress current="review" activeBookTitle={book.title ?? book.original_filename} />
 
       <div className="card stack-sm">
         <p>

@@ -12,13 +12,11 @@ using a computer.
 > 0–8 are complete: every pipeline stage, the CLI front door, the
 > Flask/JSON backend, and every screen in
 > [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
-> real, working, tested code — 413 backend tests (~96% coverage) and
-> 199 frontend tests across 31 files (~85-90% coverage), confirmed via
-> a real `npm test` run 2026-07-17 (corrects an earlier "331 frontend
-> tests" figure carried in these docs since Epic 7/8, which was simply
-> wrong -- no tests were ever removed, so the true count was always
-> lower than that), `black`/`ruff`/`mypy --strict` + `eslint`/`tsc` all
-> clean, all CI-enforced, and the full flow (Screen 1 → identification
+> real, working, tested code — 448 backend tests (~96% coverage) and
+> 216 frontend tests across 32 files (confirmed via a real `npm test`
+> run 2026-07-18, after Epic 9's step-progress indicator and its full
+> "Welcome back" resume fix), `black`/`ruff`/`mypy --strict` +
+> `eslint`/`tsc` all clean, all CI-enforced, and the full flow (Screen 1 → identification
 > → voice picker → generation → review) has been live-tested end to
 > end against the real backend and the real Kokoro TTS engine, not
 > just mocks. **The one thing not yet wired up: Flask doesn't yet serve
@@ -246,7 +244,7 @@ docs, not an intentional split of authority.
 | GUI frontend | React 19 + TypeScript (Vite build), bundled static output — no Node/npm needed at runtime | Built, dev-mode runnable; Flask-serves-`dist/` wiring is Epic 10 |
 | Text-to-speech | `kokoro` (Kokoro-82M, local inference) | Built |
 | Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 |
-| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 413 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 199 tests across 31 files passing (confirmed via a real run 2026-07-17). Both CI-enforced. | Built |
+| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 448 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 216 tests across 32 files passing (confirmed via a real run 2026-07-18). Both CI-enforced. | Built |
 
 ## License
 

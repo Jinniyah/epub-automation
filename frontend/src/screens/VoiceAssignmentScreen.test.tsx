@@ -200,4 +200,53 @@ describe("VoiceAssignmentScreen", () => {
     await screen.findAllByText("Heart");
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("single-book mode marks 'Choose Voice' current with this book trivially active", async () => {
+    setUpVoices();
+    render(
+      <VoiceAssignmentScreen books={[book()]} lastVoice="af_heart" onChanged={() => {}} />,
+    );
+    await screen.findByText("Heart");
+
+    expect(screen.getByText("Choose Voice").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(
+      screen.getByRole("navigation", { name: "Progress" }),
+    ).toHaveAttribute("aria-describedby");
+  });
+
+  it("table mode has no active book until a row is opened", async () => {
+    setUpVoices();
+    render(
+      <VoiceAssignmentScreen
+        books={[book({ id: "b1" }), book({ id: "b2", title: "Cursed" })]}
+        onChanged={() => {}}
+      />,
+    );
+    await screen.findAllByText("Heart");
+
+    expect(
+      screen.getByRole("navigation", { name: "Progress" }),
+    ).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("table mode's active book follows the most recently opened row", async () => {
+    setUpVoices();
+    const user = userEvent.setup();
+    render(
+      <VoiceAssignmentScreen
+        books={[book({ id: "b1", title: "Fated" }), book({ id: "b2", title: "Cursed" })]}
+        onChanged={() => {}}
+      />,
+    );
+    await screen.findAllByText("Heart");
+
+    await user.click(screen.getAllByRole("button", { name: "Change Voice" })[1]);
+
+    const nav = screen.getByRole("navigation", { name: "Progress" });
+    const describedById = nav.getAttribute("aria-describedby");
+    expect(document.getElementById(describedById ?? "")).toHaveTextContent("Cursed");
+  });
 });

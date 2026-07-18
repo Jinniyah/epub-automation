@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BigButton } from "../components/shared/BigButton";
 import { LiveRegion } from "../components/shared/LiveRegion";
 import { Overlay } from "../components/shared/Overlay";
+import { StepProgress } from "../components/shared/StepProgress";
 import { useAriaLiveThrottled } from "../hooks/useAriaLiveThrottled";
 import { useWorkingScreenView } from "../viewmodels/useWorkingScreenView";
 import { cancelBook, pauseBook, startGeneration } from "../api/client";
@@ -172,6 +173,7 @@ export function WorkingScreen({
         <h1 id="working-heading">Working on: {view.bookTitle}</h1>
         <p className="caption">{view.bookIndexLabel}</p>
       </div>
+      <StepProgress current="convert" activeBookTitle={view.bookTitle} />
 
       <div className="card stack-sm">
         {isPaused ? (
