@@ -411,6 +411,29 @@ real-user report) is recoverable from git history and from
   - Needs a `03-gui-ux-design.md` update alongside the code once built
     (this doc's own rule: keep requirements/design/backlog reconciled),
     since no current screen spec mentions a step indicator at all.
+  - **Follow-up, real user feedback (2026-07-18):** "I need to be able
+    to use the cookie crumb bar to go backwards. It is normal and
+    intuitive to expect it to work that way." The bar as originally
+    built was a pure status indicator — no step was ever clickable.
+    **Fixed:** `StepProgress` gained `clickableSteps`/`onStepClick`
+    props; a completed step renders as a real `<button>` only where the
+    current screen already has an existing, non-destructive way to act
+    on it, reusing that exact action rather than inventing a new one —
+    Choose Voice (single-book mode) and Review both wire "Confirm Info"
+    to their existing edit-metadata/"No, let me fix it" flows. "Add
+    Books" and "Choose Voice" (from Convert/Review) deliberately stay
+    plain text — going back there would mean either reopening Screen 1
+    mid-batch with other books already past it, or discarding
+    already-generated audio, neither of which any existing action does
+    today; making those clickable would need real backend design work,
+    not just a click handler, so they're left honest rather than
+    silently lossy. The multi-book voice table also stays non-clickable
+    in the bar itself, for the same "no single unambiguous active book"
+    reason its own active-book display already documents above — the
+    table's per-row title click already covers going back there
+    unambiguously. Full rule and per-screen mapping:
+    `03-gui-ux-design.md` §Step progress indicator. 241 frontend tests /
+    32 files, clean build/lint/test.
 - [x] `axe-core` + `eslint-plugin-jsx-a11y` wired into CI — **already
   true**, confirmed 2026-07-18 by reading `.github/workflows/ci.yml`: the
   frontend `lint` job already runs `eslint-plugin-jsx-a11y` and the

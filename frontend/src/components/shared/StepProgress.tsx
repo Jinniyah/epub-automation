@@ -11,6 +11,17 @@ export interface StepProgressProps {
    * into the step label itself, so a screen-reader user gets both facts
    * together without the step wording changing length book to book. */
   activeBookTitle?: string;
+  /** Earlier ("complete") steps the *current screen* can actually take
+   * her back to. Only ever a subset of what's already behind her --
+   * never every completed step -- because "going back" only gets
+   * offered where it's genuinely safe: revisiting Confirm Info never
+   * discards anything, but jumping back to Choose Voice or Add Books
+   * from Convert/Review would mean discarding already-generated audio
+   * or restarting the identification loop for other books mid-batch,
+   * neither of which this app does. Omitted entirely -> no step in the
+   * bar is clickable, same look as before this prop existed. */
+  clickableSteps?: Step[];
+  onStepClick?: (step: Step) => void;
 }
 
 const STEPS: { key: Step; label: string }[] = [
@@ -36,7 +47,12 @@ const STEPS: { key: Step; label: string }[] = [
  * is unfilled/outlined -- every pair of states differs by more than
  * color alone.
  */
-export function StepProgress({ current, activeBookTitle }: StepProgressProps) {
+export function StepProgress({
+  current,
+  activeBookTitle,
+  clickableSteps,
+  onStepClick,
+}: StepProgressProps) {
   const bookTitleId = useId();
   const currentIndex = STEPS.findIndex((step) => step.key === current);
 
@@ -50,6 +66,8 @@ export function StepProgress({ current, activeBookTitle }: StepProgressProps) {
           {STEPS.map((step, index) => {
             const isCurrent = step.key === current;
             const isComplete = index < currentIndex;
+            const isClickable =
+              isComplete && Boolean(onStepClick) && (clickableSteps ?? []).includes(step.key);
             return (
               <li
                 key={step.key}
@@ -65,7 +83,18 @@ export function StepProgress({ current, activeBookTitle }: StepProgressProps) {
                 <span className="step-progress__marker" aria-hidden="true">
                   {isComplete ? "✓" : index + 1}
                 </span>
-                <span className="step-progress__label">{step.label}</span>
+                {isClickable ? (
+                  <button
+                    type="button"
+                    className="step-progress__label step-progress__label--link"
+                    onClick={() => onStepClick?.(step.key)}
+                  >
+                    {step.label}
+                    <span className="sr-only"> (go back and fix this)</span>
+                  </button>
+                ) : (
+                  <span className="step-progress__label">{step.label}</span>
+                )}
               </li>
             );
           })}

@@ -309,6 +309,36 @@ around.
 - **Placement:** its own thin band, sitting below each screen's own
   `<h1>` — doesn't crowd the header card (§Visual design system) or
   collide with the `.screen-actions` sticky footer.
+- **Completed steps are clickable where going back is genuinely safe
+  (2026-07-18, real user feedback: "It is normal and intuitive to
+  expect [the breadcrumb] to work that way").** A completed step only
+  becomes a real `<button>` when the current screen has an existing,
+  non-destructive way to act on it — reusing that exact same action,
+  never a new one:
+  - **Choose Voice → Confirm Info** (single-book mode only): the same
+    edit-metadata overlay already reachable via "✏️ Not quite right?
+    Fix \_\_\_'s info".
+  - **Review → Confirm Info**: the same retag flow already reachable via
+    "No, let me fix it" (submits `looks_good: false`, then opens the
+    Field Correction Popup steps — no audio is regenerated).
+  - **Everything else stays plain text, deliberately:** "Add Books" is
+    never clickable from a later step — the backend has no concept of
+    reopening Screen 1 mid-batch without deciding what happens to
+    every *other* book already past that point. "Choose Voice" is never
+    clickable from Convert or Review — voice is already baked into
+    generated audio; picking a different one means discarding and
+    regenerating it, which no existing action does today. Both would
+    need real backend design work, not just a click handler, so they're
+    left as an honest "you were here" marker rather than a button that
+    looks safe but silently loses work. The multi-book voice table also
+    leaves Confirm Info non-clickable in the step bar — with several
+    books at different points, there's no single unambiguous "book" for
+    a bar click to act on (the table's own per-row title click already
+    covers this case unambiguously).
+  - A clickable step keeps the same visible text label, gains a visible
+    underline (not a color-only cue) and a real accessible name via a
+    screen-reader-only " (go back and fix this)" suffix, and a 44px
+    minimum touch target (RA persona, ADR-0015).
 
 ### First launch only: one-time setup
 ```

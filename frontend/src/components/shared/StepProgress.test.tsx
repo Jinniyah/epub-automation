@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { StepProgress } from "./StepProgress";
 
 describe("StepProgress", () => {
@@ -45,5 +46,52 @@ describe("StepProgress", () => {
       <StepProgress current="confirm_info" activeBookTitle="Fated" />,
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("renders a completed step named in clickableSteps as a real button", async () => {
+    const onStepClick = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <StepProgress
+        current="choose_voice"
+        clickableSteps={["confirm_info"]}
+        onStepClick={onStepClick}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Confirm Info/ }));
+    expect(onStepClick).toHaveBeenCalledWith("confirm_info");
+  });
+
+  it("leaves a completed step not named in clickableSteps as plain text", () => {
+    render(
+      <StepProgress
+        current="choose_voice"
+        clickableSteps={["confirm_info"]}
+        onStepClick={vi.fn()}
+      />,
+    );
+
+    // "Add Books" is also complete at this point, but wasn't opted in.
+    expect(screen.queryByRole("button", { name: /Add Books/ })).not.toBeInTheDocument();
+  });
+
+  it("never makes the current or upcoming steps clickable, even if listed", () => {
+    render(
+      <StepProgress
+        current="choose_voice"
+        clickableSteps={["choose_voice", "convert"]}
+        onStepClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Choose Voice/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Convert/ })).not.toBeInTheDocument();
+  });
+
+  it("stays plain text with no onStepClick handler, even if clickableSteps is set", () => {
+    render(<StepProgress current="choose_voice" clickableSteps={["confirm_info"]} />);
+
+    expect(screen.queryByRole("button", { name: /Confirm Info/ })).not.toBeInTheDocument();
   });
 });

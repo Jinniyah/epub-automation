@@ -722,6 +722,30 @@ main > * + * {
   font-weight: 600;
 }
 
+/* A completed step the current screen can actually take her back to
+ * (StepProgress's `clickableSteps` prop) -- reset to plain text sizing
+ * (this isn't `.link-button`'s bordered-pill treatment, which would
+ * look like a whole extra action row here) but still a real `<button>`
+ * with its own min-height-44px hit target and a visible underline, so
+ * it reads as clickable by shape, not by hover-color alone. */
+.step-progress__label--link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.step-progress__label--link:hover {
+  color: var(--color-primary-hover);
+}
+
 /* ---------------------------------------------------------------------
  * Chunk-progress bar (Working screen, docs/BACKLOG.md Epic 8.5's
  * "visible chunk-progress readout" item, added 2026-07-17) -- a native

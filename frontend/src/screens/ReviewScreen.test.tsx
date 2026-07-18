@@ -61,6 +61,20 @@ describe("ReviewScreen", () => {
     await vi.waitFor(() => expect(onFixIt).toHaveBeenCalledTimes(1));
   });
 
+  it("the step-progress bar's Confirm Info step does the same thing as No, let me fix it", async () => {
+    const user = userEvent.setup();
+    const reviewSpy = vi
+      .spyOn(client, "submitReview")
+      .mockResolvedValue({ ok: true, status: "needs_input" });
+    const onFixIt = vi.fn();
+    render(<ReviewScreen book={book()} onDone={() => {}} onFixIt={onFixIt} />);
+
+    await user.click(screen.getByRole("button", { name: /Confirm Info/ }));
+
+    expect(reviewSpy).toHaveBeenCalledWith("b1", false);
+    await vi.waitFor(() => expect(onFixIt).toHaveBeenCalledTimes(1));
+  });
+
   it("See the audiobook files opens this book's own folder", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(client, "openBookFolder").mockResolvedValue({ ok: true });

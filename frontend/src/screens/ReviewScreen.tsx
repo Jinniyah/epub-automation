@@ -54,7 +54,12 @@ export function ReviewScreen({ book, onDone, onFixIt }: ReviewScreenProps) {
   return (
     <main aria-labelledby="review-heading">
       <h1 id="review-heading">✅ {book.title ?? book.original_filename} is ready!</h1>
-      <StepProgress current="review" activeBookTitle={book.title ?? book.original_filename} />
+      <StepProgress
+        current="review"
+        activeBookTitle={book.title ?? book.original_filename}
+        clickableSteps={["confirm_info"]}
+        onStepClick={() => void handleNo()}
+      />
 
       <div className="card stack-sm">
         <p>

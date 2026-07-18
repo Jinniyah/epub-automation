@@ -57,6 +57,21 @@ describe("VoiceAssignmentScreen", () => {
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 
+  it("single-book mode's step-progress bar also opens the same edit-metadata overlay", async () => {
+    setUpVoices();
+    const user = userEvent.setup();
+    render(
+      <VoiceAssignmentScreen books={[book()]} lastVoice="af_heart" onChanged={vi.fn()} />,
+    );
+    await screen.findByText("Heart");
+
+    await user.click(screen.getByRole("button", { name: /Confirm Info/ }));
+
+    expect(
+      screen.getByRole("dialog", { name: 'Update "Fated"\'s info' }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the single full picker for one book, and assigning advances", async () => {
     setUpVoices();
     const assignSpy = vi

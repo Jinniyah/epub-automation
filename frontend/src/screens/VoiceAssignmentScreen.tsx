@@ -90,7 +90,12 @@ export function VoiceAssignmentScreen({
         <h1 id="voice-single-heading" className="sr-only">
           Pick a voice
         </h1>
-        <StepProgress current="choose_voice" activeBookTitle={row.title} />
+        <StepProgress
+          current="choose_voice"
+          activeBookTitle={row.title}
+          clickableSteps={["confirm_info"]}
+          onStepClick={() => setEditingMetadataFor(row.bookId)}
+        />
         <div className="button-row">
           <button
             type="button"
