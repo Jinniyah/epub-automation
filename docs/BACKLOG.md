@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–8 complete (2026-07-06 to 2026-07-11). Epic 8.5 (real-user feedback pass) nearly done — auto-load-from-folder and Field Correction Popup format hints are the only items still open; everything else is done and build/test-verified via real `npm run build`/`lint`/`test` passes (2026-07-16/17). Epic 8.6 (visual polish, EMS ReadyKit-informed) complete and verified 2026-07-16, plus one post-verification bug found and fixed 2026-07-17. **Epics 0–8.6's narrative detail was compacted 2026-07-17** — decisions/gotchas kept, blow-by-blow session narration dropped; full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left. **The real dyslexic-reader test moved to the new Wish List section (bottom of this file) 2026-07-18** — the previously-lined-up tester is no longer available; not dropped, just blocked on finding a new one.
+**Status:** Epics 0–8.6 complete (2026-07-06 to 2026-07-17). Epic 8.5's two remaining UI-polish items (auto-load-from-folder, Field Correction Popup format hints) moved to Epic 10 Phase A 2026-07-18 rather than left open against a closed epic. **Epics 0–8.6's narrative detail was properly compacted 2026-07-18** — decisions/gotchas kept, blow-by-blow session narration dropped; an earlier claim that this happened 2026-07-17 was itself inaccurate for 8.5/8.6 specifically (they'd stayed in full checklist form until this pass), now corrected. Full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left. **The real dyslexic-reader test moved to the new Wish List section (bottom of this file) 2026-07-18** — the previously-lined-up tester is no longer available; not dropped, just blocked on finding a new one. **Epic 10 resequenced into Phase A/Phase B the same day** — Phase A (Flask serves `frontend/dist/`, a no-console launch shortcut, an end-to-end smoke test) unblocks real-person testing without the full PyInstaller/SmartScreen/installer work; Phase B (the rest of Epic 10) is deliberately deferred until after an initial round of real-person feedback, since iterating against a packaged `.exe` costs a full rebuild plus a fresh SmartScreen click-through on every fix. Not started yet — see Epic 10's own section.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -149,139 +149,95 @@ writeup: `CODEBASE_INDEX.md`'s Epic 7+8 session notes.
 
 ---
 
-## Epic 8.5 — First real-user feedback pass
+## Epic 8.5 — First real-user feedback pass ✅ Complete (2026-07-17)
 
-Captures what a real hands-on run through the GUI surfaced (starting
+Real hands-on run through the GUI surfaced this whole batch (starting
 2026-07-12), before Epic 9's own separately-scoped manual accessibility
 passes. Numbered `8.5` rather than renumbering Epic 9/10/11, which are
 referenced by number throughout `CLAUDE.md` and `CODEBASE_INDEX.md`.
-Everything below except the two still-open items is done and
-build/test-verified via real `npm run build`/`lint`/`test` passes
-(2026-07-16 for the earlier items, 2026-07-17 for the later batch —
-two separate passes that day, both clean). Full root-cause writeups for
-the 2026-07-17 items live in `CODEBASE_INDEX.md`'s Session notes if
-ever needed again; condensed here.
-
-- [x] Persistent `<header>` landmark, plain-language app name on every
-  screen — closes a WCAG landmark requirement that was speced but never
-  built.
-- [ ] **Screen 1: auto-load books already in `books_folder`** as a
-  selectable checklist, alongside (not instead of) the existing
-  drag-and-drop. Needs: a backend route to list `.epub` files without
-  uploading them first, a default-checked-state decision, and a
-  `03-gui-ux-design.md` Screen 1 update so the doc doesn't quietly
-  diverge from the code.
-- [x] General spacing/whitespace pass across every screen.
-- [x] Rename stage: AI-enrichment per-field fallback chain (AI response
-  → filename-guess → EPUB-metadata) — fixed two real bugs: AI
-  enrichment overwriting a fully-parseable filename's author/series
-  info, and no-AI mode showing "Author: Not set" despite a clean
-  filename and normal EPUB metadata. `NullProvider.identify_book()` +
-  `RenameStage._merge_field_fallbacks()`; a real AI answer still always
-  wins when present.
-- [ ] **Format hint text on Field Correction Popup inputs** (Author:
-  "Last Name, First Name"; Series Number: numeric format) — applies
-  everywhere the one shared popup component is used.
-- [x] Voice picker: Male/Female label per voice (reverses the original
-  no-labels design rule; `03-gui-ux-design.md` updated to match).
-- [x] Voice picker: Listen button given the standard ~70px
-  big-click-target treatment.
-- [x] Clickable-row selected state: checkmark icon + darker background
-  added so selection isn't color-only.
-- [x] Back buttons on multi-step flows; Home button appears only
-  inside settings sub-views, never mid-onboarding or mid-batch.
-- [x] Remove-this-book generalized to every screen a book can get
-  stuck on (was Screen-1-only; a real bug left a batch permanently
-  stuck on `ErrorScreen` with no way to remove the offending book).
-- [x] Screen 1: rejected/damaged files can be dismissed individually
-  (real gap: rejections previously only ever cleared by replacing the
-  whole batch).
-- [x] Screen 1's four settings-style entry points consolidated into
-  one "⚙️ More options" hub screen, placed below Start (not above —
-  it's a rarely-visited destination).
-- [x] Header redesigned: real card surface, wordmark icon badge,
-  filled-pill Home button (previously bare text/a muted link directly
-  on the page background).
-- [x] Working screen: chunk-progress readout ("Working on file N of
-  M...") + a real `<progress>` bar — deliberately a native element,
-  not a styled `<div>`, since a hand-rolled fill bar would need the
-  `style` prop the app-wide ESLint rule forbids. New `.progress-bar`
-  CSS class. Shown regardless of pause state.
-- [x] Pause/Cancel gave no visible feedback at all — the backend logic
-  was always correct (`request_pause`/`request_cancel` just flag the
-  request; the actual stop happens at the next chunk boundary, not
-  instantly); the entire gap was `WorkingScreen` never reflecting a
-  paused book's real state. Fixed: a "⏸️ Paused" badge + real Resume
-  button (calls the existing `startGeneration()`, no new backend
-  route), all three buttons disable/relabel themselves the instant
-  they're clicked, Cancel's confirmation closes immediately rather
-  than waiting on the delayed backend flip. No special-cased
-  "navigate home" logic for Cancel — the existing state machine
-  already does that once the cancelled book is the batch's last one.
-- [x] Voice picker heading/row spacing — `main`'s app-wide section
-  rhythm (`main > * + *`) only reaches *direct* children, and
-  `VoicePicker` renders its own wrapping `<div>`, so heading-to-list
-  and inter-row gaps were both zero. Fixed with new `.stack`/
-  `.stack-md` CSS utilities, scoped narrowly so the already-correct
-  list-to-button spacing doesn't double up. Row height (the 70px
-  accessibility floor) deliberately left unchanged despite the added
-  scroll — shrinking it would trade away the same property the
-  spacing fix was for.
-- [x] "Fix info" overlay field-list-to-Save spacing — same
-  nesting-depth bug as the item above, one level deeper (`.overlay`'s
-  spacing rule instead of `main`'s). Fixed with `.stack`, deliberately
-  not via a `Fragment` flatten (would've misaligned the field-edit
-  popup-on-a-popup, itself a fixed-position `Overlay`).
+Build/test-verified via real `npm run build`/`lint`/`test` passes
+(2026-07-16 for the earlier items, 2026-07-17 for the later batch — two
+separate passes that day, both clean). Persistent `<header>` landmark
+added (closed a WCAG landmark gap that was speced but never built);
+general spacing/whitespace pass across every screen; rename-stage
+AI-enrichment gained a per-field fallback chain (AI response →
+filename-guess → EPUB-metadata), fixing two real bugs — AI enrichment
+overwriting a fully-parseable filename's author/series info, and no-AI
+mode showing "Author: Not set" despite clean EPUB metadata
+(`NullProvider.identify_book()` + `RenameStage._merge_field_fallbacks()`,
+a real AI answer still always wins when present); voice picker gained
+Male/Female labels (reversing the original no-labels rule) and a 70px
+Listen button; clickable-row selection became non-color-only (checkmark
++ darker background); Back buttons added, Home button restricted to
+settings sub-views only; Remove-this-book generalized to every screen a
+book can get stuck on (real bug: a permanently-stuck `ErrorScreen` with
+no way out); Screen 1 gained per-file rejection dismissal and its four
+settings entry points consolidated into one "⚙️ More options" hub;
+header redesigned (card surface, wordmark badge, filled-pill Home
+button); Working screen gained a chunk-progress readout + native
+`<progress>` bar (not a styled `<div>` — the app-wide `style`-prop
+ESLint ban forbids the dynamic inline `width` a hand-rolled bar would
+need). **Two findings worth remembering beyond this epic:** Pause/
+Cancel's *backend* logic was always correct
+(`request_pause`/`request_cancel` just flag the request, applied at the
+next chunk boundary) — the entire gap was `WorkingScreen` never
+reflecting a paused book's real state, fixed with a "⏸️ Paused" badge +
+Resume button reusing the existing `startGeneration()`. And a
+**recurring nesting-depth spacing bug**, hit twice the same day: any
+component rendering its own single wrapping element (`VoicePicker`,
+`ConfirmMetadataScreen`'s `asOverlay` mode) loses its ancestor's
+`main`/`.overlay` `> * + *` spacing rule for its own children — fixed
+both times with new `.stack`/`.stack-md` CSS utilities, the 70px
+row-height accessibility floor deliberately left unchanged despite the
+added scroll. **Two real UI-polish items from this pass never got
+built** — auto-load-from-folder on Screen 1, Field Correction Popup
+format hints — moved to Epic 10 Phase A (2026-07-18) rather than left
+sitting here. Full root-cause writeups: `CODEBASE_INDEX.md`'s Session
+notes.
 
 ---
 
-## Epic 8.6 — Visual polish pass (EMS ReadyKit-informed) ✅ Complete and verified (2026-07-16)
+## Epic 8.6 — Visual polish pass (EMS ReadyKit-informed) ✅ Complete (2026-07-17)
 
 Reviewed a reference deck (`EMS_ReadyKit`, a separate personal project
-with a polished mobile-first UI) at Jennifer's request, to judge
-whether this app's UI is "par for the type of app" — sorted what
-genuinely transfers to a laptop-only, mouse/keyboard-primary app from
-what's mobile convention that wouldn't fit. Full "don't copy"
-reasoning: `03-gui-ux-design.md` §Visual design system.
-
-- [x] ESLint rule forbidding the `style` prop app-wide
-  (`no-restricted-syntax`, not `eslint-plugin-react`'s
-  `forbid-dom-props` — avoids adding a new dependency for one rule).
-- [x] Card-surface audit pass: `WorkingScreen`, `ReviewScreen`, and
-  `ConfirmMetadataScreen` (standalone mode) now wrap their content in
-  `.card`, matching `FoldersScreen`'s existing pattern.
-- [x] New `.screen-actions` sticky bottom action bar pattern — opt-in
-  per call site, deliberately never used inside `.overlay`. Applied to
-  Working, Voice Assignment, Review, and Confirm Metadata.
-- [x] New `.icon-badge` utility class (the header wordmark's gradient
-  tile, generalized for reuse).
-- [x] Bug found + fixed 2026-07-17 (real screenshot): `.screen-actions`
-  must stay the *last* DOM child of `main` (its negative margins/
-  corner-rounding assume this) — `VoiceAssignmentScreen`'s
-  `RemoveBookButton` broke that, floating outside the card. Fixed by
-  reordering; worth a grep for the same mistake elsewhere, since it's
-  easy to reintroduce.
-
-**Verified 2026-07-16** via a real `npm run build`/`lint`/`test` (the
-first pass surfaced an unrelated pre-existing `tsc` error, fixed and
-logged under Epic 8.5); confirmed clean again 2026-07-17 for the
-DOM-ordering fix above, alongside that day's Epic 8.5 batch.
-
-**Explicitly out of scope, not deferred:** a real inline-SVG icon
-system replacing emoji — real accessibility-testing cost (aria-label
-pass + full axe re-run) against marginal benefit, since emoji already
-carry text alternatives. **Explicitly rejected, not just deferred:** a
-bottom tab bar (misrepresents this app's linear wizard flow as
-peer/lateral navigation) and any icon-only control without a visible
-text label.
+with a polished mobile-first UI) at Jennifer's request, to judge whether
+this app's UI is "par for the type of app" — sorted what genuinely
+transfers to a laptop-only, mouse/keyboard-primary app from what's
+mobile convention that wouldn't fit (full "don't copy" reasoning:
+`03-gui-ux-design.md` §Visual design system). Verified 2026-07-16 via a
+real `npm run build`/`lint`/`test` (the first pass surfaced an unrelated
+pre-existing `tsc` error, fixed and logged under Epic 8.5); confirmed
+clean again 2026-07-17 alongside that day's Epic 8.5 batch. Added: an
+ESLint rule forbidding the `style` prop app-wide (`no-restricted-syntax`,
+not `eslint-plugin-react`'s `forbid-dom-props` — avoids a new dependency
+for one rule); a card-surface audit pass (`WorkingScreen`, `ReviewScreen`,
+`ConfirmMetadataScreen` standalone mode now match `FoldersScreen`'s
+existing `.card` pattern); a new `.screen-actions` sticky bottom action
+bar (opt-in per call site, never inside `.overlay`); a new `.icon-badge`
+utility (the header wordmark's gradient tile, generalized for reuse). A
+real bug found and fixed 2026-07-17 (real screenshot): `.screen-actions`
+must stay the *last* DOM child of `main` — its negative margins/corner-
+rounding assume this — `VoiceAssignmentScreen`'s `RemoveBookButton` broke
+that, floating outside the card; worth a grep for the same mistake
+elsewhere, since it's easy to reintroduce. **Explicitly out of scope,
+not deferred:** a real inline-SVG icon system replacing emoji (real
+accessibility-testing cost against marginal benefit, since emoji already
+carry text alternatives). **Explicitly rejected, not just deferred:** a
+bottom tab bar (misrepresents this app's linear wizard flow as peer/
+lateral navigation) and any icon-only control without a visible text
+label.
 
 ---
 
-*Compacted 2026-07-17 — Epics 0–8.6 are closed; entries above are
-condensed to the decisions/gotchas with lasting relevance. Full
-narrative detail (root-cause investigations, exact test names, the
-full text of every real-user report) is recoverable from git history
-and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
+*Compacted 2026-07-18 — Epics 0–8.6 are closed; entries above are
+condensed to the decisions/gotchas with lasting relevance. (An earlier
+note here claimed this compaction happened 2026-07-17 for 8.5/8.6
+specifically — that was inaccurate; both stayed in full checklist form
+until this pass actually condensed them, moving their two still-open
+items to Epic 10 Phase A in the process.) Full narrative detail
+(root-cause investigations, exact test names, the full text of every
+real-user report) is recoverable from git history and from
+`CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 
 ---
 
@@ -500,34 +456,116 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 
 ## Epic 10 — Packaging & First-Run Experience
 
+**Resequenced 2026-07-18, direct request:** split into two phases so
+real-person testing (the primary FMS/RA persona's own unassisted dry
+run, `docs/BACKLOG.md` Epic 9's still-open "her-facing copy read-
+through" item) can start against something that looks and runs like a
+finished app — no visible terminal, no two-process dev setup — *without*
+first paying for the full PyInstaller/SmartScreen/installer work, which
+is genuinely slower to iterate on and not needed just to get a clean
+single-click launch. **Phase A directly unblocks that testing and should
+happen first; Phase B is deliberately deferred until after an initial
+round of real-person feedback is in**, so bugs she finds get fixed by
+editing code and restarting one process, not by re-running a multi-
+minute PyInstaller build and re-doing a SmartScreen click-through on
+every single fix (see the reasoning below Phase B for why that ordering
+matters, not just convenience).
+
+### Phase A — unblocks real-person testing, do first
+
 - [ ] **Flask must gain a route serving `frontend/dist/`** (static files +
-  an `index.html` fallback for client-side routing) — confirmed missing
+  a fallback to `index.html` for any non-`/api/*` GET). Confirmed missing
   while closing out Epic 7/8: `backend/app.py` currently only registers
   `/api/*` JSON routes, so `python launcher.py` alone opens a browser to
   a `404`. Dev mode works today because Vite serves the frontend
   directly on its own port and proxies `/api` through
   (`frontend/vite.config.ts`) — that path never needed Flask to serve
-  anything but JSON. This is genuinely packaging-shaped work (locating
-  the bundled `dist/` at a frozen `.exe`'s runtime path, e.g.
-  `sys._MEIPASS`, is PyInstaller-specific), which is why it was left
-  here rather than pulled into Epic 7/8, but it blocks *any* single-
-  process/single-command way to see the GUI, not just the final `.exe`
-  — worth doing early in this epic, not saved for last.
+  anything but JSON. **Simpler than a typical SPA-router fallback:**
+  `App.tsx` has no client-side routing (`react-router` or otherwise) —
+  it's all internal component state (`phase`/`subView`), one real URL
+  path (`/`) — so the fallback route doesn't need to distinguish "a real
+  client route" from "a 404," it can serve `index.html` for any
+  unmatched GET unconditionally. **Build the dist-path resolver to
+  already handle both the dev and frozen-`.exe` cases** (check
+  `sys._MEIPASS` when frozen, else a path relative to `backend/app.py`)
+  even though Phase B's PyInstaller work is what actually exercises the
+  frozen branch — cheap to get right once now rather than revisiting
+  this same function in Phase B.
+- [ ] **A no-console way to hand her a working GUI without a full
+  `.exe`** — not previously a backlog item, added 2026-07-18 alongside
+  the resequencing above, since it's the actual near-term unblocker.
+  Once Flask serves `frontend/dist/`, `python launcher.py` alone is a
+  complete, real single-process app — the only thing missing for a
+  clean handoff is not making her see a terminal window. A `.vbs`
+  wrapper (or a shortcut targeting `pythonw.exe`, the windowless
+  interpreter that already ships with a normal CPython install) invoking
+  `launcher.py` from the project's `.venv`, saved as a desktop shortcut,
+  gets there without any PyInstaller/signing/installer work at all. This
+  is explicitly a **testing-phase stand-in, not a replacement for real
+  packaging** — she still needs Python/the venv set up on whatever
+  machine she tests on (a technical family member does that once, same
+  pattern as AI-key provisioning and the SmartScreen click-through
+  elsewhere in this doc), and Epic 10 isn't "done" until Phase B's real
+  `.exe` removes that dependency too.
+- [ ] **Smoke-test the real single-process path end to end** — `npm run
+  build` in `frontend/`, then `python launcher.py` alone (no second
+  terminal, no `npm run dev`), confirming the full flow (Screen 1 →
+  identification → voice picker → generation → review) works exactly as
+  it does in dev mode. Worth doing deliberately once Phase A's other two
+  items land, not just assumed to work: this is the first time the
+  single-process path is actually exercised, and it's better to catch a
+  path-resolution or static-asset-caching bug here, testing it yourself,
+  than to have it be the first thing she hits.
+
+**Moved here from Epic 8.5 (2026-07-18, direct request):** two real
+UI-polish items that never got built, worth finishing before she's
+actually testing rather than after.
+
+- [ ] **Screen 1: auto-load books already in `books_folder`** as a
+  selectable checklist, alongside (not instead of) the existing
+  drag-and-drop. Needs: a backend route to list `.epub` files without
+  uploading them first, a default-checked-state decision, and a
+  `03-gui-ux-design.md` Screen 1 update so the doc doesn't quietly
+  diverge from the code.
+- [ ] **Format hint text on Field Correction Popup inputs** (Author:
+  "Last Name, First Name"; Series Number: numeric format) — applies
+  everywhere the one shared popup component is used.
+
+### Phase B — full packaging, deliberately after initial real-person feedback
+
+**Why this ordering, not just "nice to have first":** once she's testing
+against a real packaged `.exe`, every bug-fix cycle costs a full
+PyInstaller rebuild (multi-GB, minutes, not seconds) *and* a fresh
+SmartScreen "More info → Run anyway" click-through — Windows treats each
+newly-built `.exe` as a distinct unrecognized file, so ADR-0011's
+one-time-friction mitigation resets on every single rebuild, not just
+the first install. Doing Phase A first means the bugs her testing
+actually surfaces get found and fixed against the cheap single-process
+path (edit code, restart `launcher.py`, refresh the browser), and only
+the fixes that survive that round get carried into a `.exe` build — far
+fewer total PyInstaller rebuilds and SmartScreen click-throughs than
+packaging first and iterating against the finished artifact.
+
 - [ ] Full PyInstaller build pipeline (`npm run build` → `dist/` → bundle)
 - [ ] SmartScreen mitigation: installer runs it once first + fallback
   HTML file
 - [ ] Browser-launch fallback: retry, then native `tkinter` dialog with
-  clipboard-copied address
+  clipboard-copied address — logic already built (`launcher.py`), this
+  is verifying it on a real machine, not writing it
 - [ ] First-run setup screen tied to the lazy trigger point
 - [ ] Verify uninstall is genuinely two deletions
 - [ ] **Moved from Epic 4:** CPU vs. GPU benchmarking on real target
   hardware — produces the real `SECONDS_PER_CHAR` constant
   (`pipeline/tts_engine.py`) the Working-screen time estimate needs,
-  replacing the current placeholder. Needs a real packaged `.exe` on
-  real hardware, which this epic is the first point that exists.
+  replacing the current placeholder. Only needs *real hardware*, not
+  necessarily the finished `.exe` specifically — could in principle move
+  earlier (even into Phase A) if real target hardware becomes available
+  sooner than the rest of Phase B; left here since nothing else forces
+  it before this point.
 - [ ] **Moved from Epic 4:** Kokoro vs. Perchance output parity QA pass
   — a real side-by-side listen before fully retiring the old
-  Selenium/Perchance path as a fallback option.
+  Selenium/Perchance path as a fallback option. Same real-hardware-not-
+  necessarily-`.exe` caveat as the item above.
 
 ---
 
