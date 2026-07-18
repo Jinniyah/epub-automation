@@ -20,6 +20,13 @@ export interface FieldCorrectionPopupProps {
    * just stepping back one field -- omitted entirely on the first field
    * of a flow, or when this popup isn't part of a step sequence at all. */
   onBack?: () => void;
+  /** Short plain-language format example shown directly under the input
+   * (e.g. "Like: Jacka, Benedict" for Author) -- docs/BACKLOG.md Epic 10
+   * Phase A, moved from Epic 8.5. Omitted for fields with no particular
+   * expected shape (Title, Series). Tied to the input via
+   * `aria-describedby` so a screen-reader user gets it as part of the
+   * field's own description, not a disconnected line of text. */
+  hint?: string;
 }
 
 /** One component, reused identically by the pre-generation "Confirm
@@ -36,11 +43,13 @@ export function FieldCorrectionPopup({
   onClose,
   saveLabel = "Save",
   onBack,
+  hint,
 }: FieldCorrectionPopupProps) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const inputId = useId();
+  const hintId = useId();
 
   useEffect(() => {
     // Runs after Overlay's own focus-trap effect has already focused
@@ -51,7 +60,7 @@ export function FieldCorrectionPopup({
 
   return (
     <Overlay titleId={titleId} title={`✏️ ${fieldLabel}`} onClose={onClose}>
-      <div className="field">
+      <div className="field stack-sm">
         <label htmlFor={inputId} className="sr-only">
           {fieldLabel}
         </label>
@@ -61,7 +70,13 @@ export function FieldCorrectionPopup({
           type="text"
           value={value}
           onChange={(event) => setValue(event.target.value)}
+          aria-describedby={hint ? hintId : undefined}
         />
+        {hint ? (
+          <p id={hintId} className="caption">
+            {hint}
+          </p>
+        ) : null}
       </div>
       {onBack ? (
         <button type="button" className="link-button" onClick={onBack}>

@@ -204,6 +204,7 @@ export function ConfirmMetadataScreen({
         <FieldCorrectionPopup
           fieldLabel="Author"
           initialValue={formatAuthor(authorFirst, authorLast)}
+          hint="Last name, first name -- like Jacka, Benedict"
           onClose={() => setEditing(null)}
           onSave={(value) => {
             const parsed = parseAuthor(value);
@@ -228,6 +229,7 @@ export function ConfirmMetadataScreen({
         <FieldCorrectionPopup
           fieldLabel="Series Number"
           initialValue={seriesNumber}
+          hint="Just the number -- like 1 or 2.5"
           onClose={() => setEditing(null)}
           onSave={(value) => {
             setSeriesNumber(value);

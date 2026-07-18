@@ -8,6 +8,7 @@ import type {
   AddBooksResponse,
   ApiResult,
   DiskSpaceReport,
+  FolderBooksResponse,
   FolderPickResult,
   MetadataCorrections,
   OkResponse,
@@ -148,6 +149,18 @@ export function removeBook(bookId: string): Promise<OkResponse> {
 
 export function getDiskSpace(): Promise<DiskSpaceReport> {
   return getJson<DiskSpaceReport>("/api/disk-space");
+}
+
+/** Auto-load-from-folder (docs/BACKLOG.md Epic 10 Phase A, moved from
+ * Epic 8.5) -- alongside, not instead of, drag-and-drop/`addBooks`
+ * above. `getBooksInFolder` never uploads or reads file contents, just
+ * lists what's already sitting in her remembered `books_folder`. */
+export function getBooksInFolder(): Promise<FolderBooksResponse> {
+  return getJson<FolderBooksResponse>("/api/books/from-folder");
+}
+
+export function addBooksFromFolder(filenames: string[]): Promise<AddBooksResponse> {
+  return postJson<AddBooksResponse>("/api/books/from-folder", { filenames });
 }
 
 // ---------------------------------------------------------------------------

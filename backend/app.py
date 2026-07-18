@@ -16,6 +16,7 @@ starts a fresh one; see `_current_runner()`.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -23,7 +24,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, current_app, jsonify, request, send_file
+from flask import (
+    Flask,
+    Response,
+    current_app,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+)
 from werkzeug.utils import secure_filename
 
 from backend import bridge, dialogs
@@ -45,6 +54,24 @@ from pipeline.tts_engine import (
 RouteResult = Response | tuple[Response, int]
 
 DEFAULT_APPDATA_DIR = Path.home() / "AppData" / "Roaming" / "EpubAutomation"
+
+
+def _frontend_dist_dir() -> Path:
+    """Where the built React frontend (`npm run build`'s `dist/`) lives,
+    at runtime -- docs/BACKLOG.md Epic 10 Phase A. Two cases, both handled
+    from day one even though only the dev case is exercised until Epic 10
+    Phase B's PyInstaller work actually produces a frozen `.exe`: a
+    frozen exe's bundled data lives under `sys._MEIPASS` (a PyInstaller-
+    injected attribute, absent otherwise -- `getattr` instead of
+    `sys.frozen` so this stays a plain runtime check, not a mypy
+    attribute error); everywhere else, it's a fixed path relative to this
+    file, since `backend/` and `frontend/` are sibling directories in the
+    repo (and, per the same layout, in the frozen bundle)."""
+    frozen_base = getattr(sys, "_MEIPASS", None)
+    if frozen_base:
+        return Path(frozen_base) / "frontend" / "dist"
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
 
 # ai_api_key is masked like a password field everywhere in her UI
 # (03-gui-ux-design.md) -- GET /api/settings never returns its real value.
@@ -207,7 +234,11 @@ def _origin_is_allowed(origin: str | None, host: str) -> bool:
 def create_app(
     *, appdata_dir: Path | None = None, tts_engine: TTSEngineLike | None = None
 ) -> Flask:
-    app = Flask(__name__)
+    # static_folder=None: this app serves the React build's static assets
+    # through the catch-all route registered at the bottom of this
+    # function, not Flask's own default `/static/<path:filename>` ->
+    # `<app_root>/static/` convention, which doesn't apply here at all.
+    app = Flask(__name__, static_folder=None)
     app.config["APP_STATE"] = _build_app_state(
         appdata_dir or DEFAULT_APPDATA_DIR, tts_engine
     )
@@ -340,6 +371,95 @@ def create_app(
     def remove_book_route(book_id: str) -> Response:
         removed = _state().runner.remove_book(book_id)
         return jsonify({"ok": removed})
+
+    # ------------------------------------------------------------------
+    # Screen 1: auto-load books already sitting in her books_folder
+    # (docs/BACKLOG.md Epic 10 Phase A, moved from Epic 8.5 -- real-user
+    # feedback, alongside the existing drag-and-drop/Choose Books, not
+    # instead of it).
+    # ------------------------------------------------------------------
+
+    def _books_folder(state: AppState) -> Path | None:
+        raw = state.settings.get("books_folder")
+        return Path(raw) if raw else None
+
+    def _safe_folder_epub_path(folder: Path, filename: str) -> Path | None:
+        """Resolve `filename` to a real `.epub` file directly inside
+        `folder` -- never a path-traversal escape, same defensive pattern
+        as `_safe_upload_path()` above, since this filename also arrives
+        from the client (the checklist she checked) rather than from a
+        trusted server-side listing at the moment it's actually used."""
+        safe_name = secure_filename(filename)
+        if not safe_name:
+            return None
+        candidate = (folder / safe_name).resolve()
+        if folder.resolve() not in candidate.parents:
+            return None
+        if candidate.suffix.lower() != ".epub" or not candidate.is_file():
+            return None
+        return candidate
+
+    @app.get("/api/books/from-folder")
+    def list_folder_books_route() -> Response:
+        """Lists `.epub` files sitting directly in her `books_folder`
+        that aren't already part of the current batch -- what Screen 1's
+        auto-load checklist is built from. Never uploads or reads file
+        contents; just names. Gracefully empty (not an error) if
+        `books_folder` isn't set or doesn't exist."""
+        state = _state()
+        folder = _books_folder(state)
+        if folder is None or not folder.is_dir():
+            return jsonify({"files": []})
+        already_added = {
+            b.data.get("original_filename") for b in state.runner.snapshot()
+        }
+        files = sorted(
+            p.name
+            for p in folder.iterdir()
+            if p.is_file()
+            and p.suffix.lower() == ".epub"
+            and p.name not in already_added
+        )
+        return jsonify({"files": files})
+
+    @app.post("/api/books/from-folder")
+    def add_books_from_folder_route() -> Response:
+        """Adds a checked subset of `/api/books/from-folder`'s own list --
+        same per-file response shape as `POST /api/books` (the upload
+        route) so the frontend can reuse its existing rejection-handling
+        logic unchanged. Each file is read directly from `books_folder`,
+        never uploaded through a temp path, since it's already a real
+        file on disk this process can read."""
+        state = _state()
+        runner = _current_runner(state)
+        folder = _books_folder(state)
+        body = request.get_json(silent=True) or {}
+        filenames = body.get("filenames") or []
+        results = []
+        for name in filenames:
+            path = _safe_folder_epub_path(folder, name) if folder else None
+            if path is None:
+                results.append(
+                    {
+                        "ok": False,
+                        "original_filename": name,
+                        "book_id": None,
+                        "reason": None,
+                        "message": "That file couldn't be found in your books folder.",
+                    }
+                )
+                continue
+            result = runner.add_book(path)
+            results.append(
+                {
+                    "ok": result.ok,
+                    "original_filename": name,
+                    "book_id": result.book.book_id if result.book else None,
+                    "reason": result.reason.value if result.reason else None,
+                    "message": result.message,
+                }
+            )
+        return jsonify({"results": results})
 
     @app.get("/api/disk-space")
     def disk_space_route() -> Response:
@@ -602,5 +722,49 @@ def create_app(
 
         threading.Thread(target=_shutdown, daemon=True).start()
         return jsonify({"ok": True})
+
+    # ------------------------------------------------------------------
+    # Serve the built React frontend (docs/BACKLOG.md Epic 10 Phase A) --
+    # registered last, deliberately: a literal route like `/api/status`
+    # always wins over this catch-all regardless of registration order
+    # (Werkzeug sorts by specificity, not by definition order), but
+    # keeping it last still reads correctly as "the fallback." `App.tsx`
+    # has no client-side routing (no react-router, all internal component
+    # state) -- there's exactly one real path (`/`), so this never needs
+    # to distinguish "a real client route" from "a typo," and can serve
+    # `index.html` unconditionally for any unmatched GET. The one
+    # exception: a GET under `/api/` that doesn't match a real route
+    # above gets a real 404 instead of silently returning HTML, so a
+    # mistyped API path fails loudly rather than looking like a frontend
+    # bug.
+    # ------------------------------------------------------------------
+
+    @app.get("/", defaults={"path": ""})
+    @app.get("/<path:path>")
+    def serve_frontend(path: str) -> RouteResult:
+        if path.startswith("api/"):
+            return jsonify({"ok": False, "error": "Not found."}), 404
+
+        dist_dir = _frontend_dist_dir()
+        if path:
+            candidate = (dist_dir / path).resolve()
+            if dist_dir.resolve() in candidate.parents and candidate.is_file():
+                return send_from_directory(dist_dir, path)
+
+        index_path = dist_dir / "index.html"
+        if not index_path.is_file():
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Frontend build not found. Run 'npm run build' in "
+                            "frontend/."
+                        ),
+                    }
+                ),
+                404,
+            )
+        return send_from_directory(dist_dir, "index.html")
 
     return app

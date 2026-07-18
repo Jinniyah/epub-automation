@@ -140,4 +140,46 @@ describe("FieldCorrectionPopup", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("shows no hint text when none is provided", () => {
+    render(
+      <FieldCorrectionPopup
+        fieldLabel="Title"
+        initialValue="Fated"
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText("Title")).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("shows the format hint, tied to the input via aria-describedby", () => {
+    render(
+      <FieldCorrectionPopup
+        fieldLabel="Author"
+        initialValue="Jacka, Benedict"
+        hint="Last name, first name -- like Jacka, Benedict"
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    const input = screen.getByLabelText("Author");
+    const hint = screen.getByText("Last name, first name -- like Jacka, Benedict");
+    expect(input).toHaveAttribute("aria-describedby", hint.id);
+  });
+
+  it("has no axe violations with a hint present", async () => {
+    const { container } = render(
+      <FieldCorrectionPopup
+        fieldLabel="Series Number"
+        initialValue="1"
+        hint="Just the number -- like 1 or 2.5"
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });

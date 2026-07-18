@@ -7,25 +7,27 @@ can't run scripts from a terminal and has real physical constraints
 using a computer.
 
 > **Status: the shared pipeline core, both API surfaces, and the
-> accessible GUI's React frontend are all built and tested — one gap
-> remains before a single-command working GUI.** Epics 0–8 (plus 8.5,
-> 8.6, and Epic 9's code-buildable items) are complete: every pipeline
-> stage, the CLI, the Flask/JSON backend, and every screen in
+> accessible GUI's React frontend are all built and tested — `python
+> launcher.py` alone now runs the real, complete GUI, single process, no
+> dev tooling.** Epics 0–8 (plus 8.5, 8.6, Epic 9's code-buildable items,
+> and Epic 10 Phase A) are complete: every pipeline stage, the CLI, the
+> Flask/JSON backend, and every screen in
 > [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
-> real, tested code — 448 backend tests (~96% coverage), 216 frontend
-> tests across 32 files, `black`/`ruff`/`mypy --strict` + `eslint`/`tsc`
-> all clean and CI-enforced (confirmed 2026-07-18). The full flow
-> (Screen 1 → identification → voice picker → generation → review) has
-> been live-tested end to end against the real backend and the real
-> Kokoro TTS engine, not just mocks.
+> real, tested code, and Flask now serves the built frontend directly
+> (`GET /` and friends) rather than needing Vite's own dev server —
+> 462 backend tests (~96% coverage), 224 frontend tests across 32 files,
+> `black`/`ruff`/`mypy --strict` + `eslint`/`tsc` all clean and
+> CI-enforced, plus a real live smoke test against an actually-running
+> server (curl-verified, not just unit tests) — confirmed 2026-07-18.
 >
-> **The one thing not yet wired up: Flask doesn't yet serve the built
-> frontend.** Dev mode (Vite's own dev server + a separately-running
-> backend, two processes) shows the real GUI today, but `python
-> launcher.py` alone still opens a browser to a `404`, since nothing has
-> told Flask how to serve `frontend/dist/` yet — genuinely
-> packaging-shaped work (Epic 10, see [`docs/BACKLOG.md`](docs/BACKLOG.md)),
-> not a frontend gap. The CLI is fully usable right now regardless — see
+> **What's still missing is the real packaged `.exe`** (Epic 10 Phase B
+> — see [`docs/BACKLOG.md`](docs/BACKLOG.md)): no code signing/installer/
+> first-run screen yet, so this machine still needs Python and this
+> project's own `.venv` set up first. Until then,
+> [`run_gui.vbs`](run_gui.vbs) (double-click, or a desktop shortcut to
+> it) gets the same no-visible-console experience as the eventual `.exe`
+> will, for real-person testing in the meantime. The CLI has been fully
+> usable since Epic 0 regardless — see
 > [Getting started](#getting-started). Full documentation index in
 > [Documentation](#documentation) below.
 
@@ -69,10 +71,10 @@ pipeline engine. Neither contains its own copy of the pipeline logic.
   for the full screen-by-screen design. **Built and tested** — every
   screen, the backend API it calls
   ([full reference](docs/requirements/01-architecture.md#full-api-route-reference-epic-6-backendapppy)),
-  and the wiring between them. **Runnable in dev mode today** (see
-  [Getting started](#getting-started)); the single-command production
-  path (`python launcher.py` alone) is blocked on Flask gaining a route
-  to serve the built frontend, tracked as Epic 10 packaging work.
+  and the wiring between them. **`python launcher.py` alone runs the
+  real thing today** (see [Getting started](#getting-started)) — the
+  only piece still missing is the packaged, signed-workaround `.exe`
+  itself (Epic 10 Phase B), not the app.
 
 The GUI runs as a background Flask server the browser talks to over
 polling — not a desktop-window wrapper — specifically so that closing
@@ -122,11 +124,25 @@ make check     # lint + typecheck + coverage -- what CI actually runs
 make format    # black + ruff --fix
 ```
 
-### Running the GUI (dev mode)
+### Running the GUI
 
-Two processes, in separate terminals — Flask doesn't yet serve the
-built frontend directly (see the status note at the top of this
-README; that's Epic 10 packaging work):
+**Single process, the real thing** — build the frontend once, then
+`launcher.py` alone serves everything (backend JSON API + the built
+React app) and opens your browser to it:
+
+```powershell
+cd frontend && npm install && npm run build && cd ..
+python launcher.py
+```
+
+Or double-click [`run_gui.vbs`](run_gui.vbs) (or a desktop shortcut to
+it) for the same thing with no visible console window at all — a
+testing-phase stand-in for the eventual packaged `.exe` (Epic 10 Phase
+B), see [`07-packaging-deployment.md`](docs/requirements/07-packaging-deployment.md).
+
+**Frontend dev mode** — two processes, only needed when actively editing
+the frontend (hot reload; the single-process path above always serves
+whatever `frontend/dist/` last had built into it):
 
 ```powershell
 # Terminal 1 -- backend, fixed dev port so Vite's proxy can find it
@@ -138,11 +154,7 @@ npm install
 npm run dev
 ```
 
-Then open the URL Vite prints (`http://localhost:5173`). `python
-launcher.py` alone (no `frontend` terminal) starts the same backend on
-a dynamically-assigned port and opens a browser tab to it, but that tab
-will 404 today — it's built for the eventual single-origin production
-path, not dev mode.
+Then open the URL Vite prints (`http://localhost:5173`).
 
 ## Accessibility beyond the primary persona: WCAG 2.1 AA alignment
 
@@ -234,10 +246,10 @@ docs, not an intentional split of authority.
 |---|---|---|
 | Core pipeline | Python 3.11+ | Built |
 | GUI backend | Flask, served via `waitress`, bound to `127.0.0.1` only | Built |
-| GUI frontend | React 19 + TypeScript (Vite build), bundled static output — no Node/npm needed at runtime | Built, dev-mode runnable; Flask-serves-`dist/` wiring is Epic 10 |
+| GUI frontend | React 19 + TypeScript (Vite build), bundled static output — no Node/npm needed at runtime | Built; Flask serves `dist/` directly (Epic 10 Phase A) |
 | Text-to-speech | `kokoro` (Kokoro-82M, local inference) | Built |
-| Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 |
-| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 448 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 216 tests across 32 files passing (confirmed via a real run 2026-07-18). Both CI-enforced. | Built |
+| Packaging | PyInstaller, single `.exe` (Windows-only for v1) | Packaging spike verified working; full build pipeline is Epic 10 Phase B |
+| Testing | Backend: `pytest` + `pytest-cov` (80%+ floor), `black`, `ruff`, `mypy --strict`, 462 tests passing. Frontend: Vitest + React Testing Library + `vitest-axe` (80%+ floor), `eslint` incl. `eslint-plugin-jsx-a11y`, `tsc`, 224 tests across 32 files passing (confirmed via a real run 2026-07-18). Both CI-enforced. | Built |
 
 ## License
 

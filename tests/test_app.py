@@ -16,6 +16,7 @@ import pytest
 from ebooklib import epub
 from flask.testing import FlaskClient
 
+import backend.app as app_module
 import backend.bridge as bridge_module
 import backend.dialogs as dialogs_module
 from backend.app import _origin_is_allowed, _safe_upload_path, create_app
@@ -411,6 +412,111 @@ def test_disk_space_route(client: FlaskClient) -> None:
     body = resp.get_json()
     assert body["estimated_total_bytes"] > 0
     assert isinstance(body["checked_paths"], list)
+
+
+# ---------------------------------------------------------------------------
+# Screen 1: auto-load books from books_folder (docs/BACKLOG.md Epic 10
+# Phase A, moved from Epic 8.5)
+# ---------------------------------------------------------------------------
+
+
+def test_list_folder_books_is_empty_when_books_folder_is_unset(
+    client: FlaskClient,
+) -> None:
+    resp = client.get("/api/books/from-folder")
+
+    assert resp.get_json() == {"files": []}
+
+
+def test_list_folder_books_is_empty_when_the_folder_does_not_exist(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    client.post(
+        "/api/settings", json={"books_folder": str(tmp_path / "does-not-exist")}
+    )
+
+    resp = client.get("/api/books/from-folder")
+
+    assert resp.get_json() == {"files": []}
+
+
+def test_list_folder_books_lists_epub_files_only(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    (books_folder / "Fated.epub").write_bytes(_make_epub_bytes(title="Fated"))
+    (books_folder / "notes.txt").write_text("not a book")
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.get("/api/books/from-folder")
+
+    assert resp.get_json() == {"files": ["Fated.epub"]}
+
+
+def test_list_folder_books_excludes_files_already_added(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    (books_folder / "Fated.epub").write_bytes(_make_epub_bytes(title="Fated"))
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+    client.post("/api/books/from-folder", json={"filenames": ["Fated.epub"]})
+
+    resp = client.get("/api/books/from-folder")
+
+    assert resp.get_json() == {"files": []}
+
+
+def test_add_books_from_folder_adds_a_real_book(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    (books_folder / "Fated.epub").write_bytes(_make_epub_bytes(title="Fated"))
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post("/api/books/from-folder", json={"filenames": ["Fated.epub"]})
+
+    body = resp.get_json()
+    assert body["results"][0]["ok"] is True
+    assert body["results"][0]["original_filename"] == "Fated.epub"
+    status = _poll_status(client)
+    assert any(b["original_filename"] == "Fated.epub" for b in status["books"])
+
+
+def test_add_books_from_folder_rejects_a_path_traversal_filename(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post(
+        "/api/books/from-folder", json={"filenames": ["..\\..\\launcher.py"]}
+    )
+
+    assert resp.get_json()["results"][0]["ok"] is False
+
+
+def test_add_books_from_folder_rejects_a_nonexistent_filename(
+    client: FlaskClient, tmp_path: Path
+) -> None:
+    books_folder = tmp_path / "books"
+    books_folder.mkdir()
+    client.post("/api/settings", json={"books_folder": str(books_folder)})
+
+    resp = client.post("/api/books/from-folder", json={"filenames": ["Nope.epub"]})
+
+    assert resp.get_json()["results"][0]["ok"] is False
+
+
+def test_add_books_from_folder_is_a_no_op_with_no_books_folder_set(
+    client: FlaskClient,
+) -> None:
+    resp = client.post("/api/books/from-folder", json={"filenames": ["Fated.epub"]})
+
+    assert resp.get_json()["results"][0]["ok"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -903,3 +1009,98 @@ def test_quit_route_responds_ok_without_actually_killing_the_test_process(
 
     time.sleep(0.4)
     assert exit_calls == [0]
+
+
+# ---------------------------------------------------------------------------
+# Serving the built frontend (docs/BACKLOG.md Epic 10 Phase A)
+# ---------------------------------------------------------------------------
+
+
+def test_serve_frontend_returns_a_real_404_when_the_build_is_missing(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: tmp_path / "no-dist")
+
+    resp = client.get("/")
+
+    assert resp.status_code == 404
+    assert resp.get_json()["ok"] is False
+
+
+def test_serve_frontend_serves_index_html_at_the_root(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html>the real app</html>")
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: dist_dir)
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert b"the real app" in resp.data
+
+
+def test_serve_frontend_serves_a_real_static_asset(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist_dir = tmp_path / "dist"
+    (dist_dir / "assets").mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<html>the real app</html>")
+    (dist_dir / "assets" / "app.js").write_text("console.log('hi')")
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: dist_dir)
+
+    resp = client.get("/assets/app.js")
+
+    assert resp.status_code == 200
+    assert b"console.log" in resp.data
+
+
+def test_serve_frontend_falls_back_to_index_html_for_an_unknown_path(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`App.tsx` has no client-side routing at all -- any unmatched GET
+    should still get the one real page, not a 404."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html>the real app</html>")
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: dist_dir)
+
+    resp = client.get("/some/unexpected/path")
+
+    assert resp.status_code == 200
+    assert b"the real app" in resp.data
+
+
+def test_serve_frontend_returns_a_real_404_for_an_unmatched_api_path(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mistyped API route must fail loudly (JSON 404), not silently
+    serve the frontend's `index.html` as if it were a normal page."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html>the real app</html>")
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: dist_dir)
+
+    resp = client.get("/api/this-route-does-not-exist")
+
+    assert resp.status_code == 404
+    assert resp.get_json()["ok"] is False
+
+
+def test_serve_frontend_does_not_leak_a_file_outside_the_dist_dir(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html>the real app</html>")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do not serve me")
+    monkeypatch.setattr(app_module, "_frontend_dist_dir", lambda: dist_dir)
+
+    resp = client.get("/../secret.txt")
+
+    # Either Werkzeug itself normalizes this before it ever reaches the
+    # view, or the view's own dist_dir-containment check catches it --
+    # either way the secret file's content must never come back.
+    assert b"do not serve me" not in resp.data

@@ -437,6 +437,11 @@ You were in the middle of:
 ```
 📚 Drop your book files here, or  [ Choose Books... ]
 
+📁 Books found in your folder:
+☑ Wheel of Time.epub
+☑ The Hating Game.epub
+           [ Add 2 books ]
+
 Your books:
 ✓ Fated.epub                    [ Remove ]
 ✓ Cursed.epub                   [ Remove ]
@@ -448,6 +453,22 @@ Your books:
 
            [ ⚙️ More options ]
 ```
+- **"📁 Books found in your folder" (added docs/BACKLOG.md Epic 10 Phase
+  A, moved from Epic 8.5, real-user feedback):** alongside, not instead
+  of, drag-and-drop/"Choose Books..." above — a third, non-invasive way
+  in for `.epub` files already sitting in her remembered books folder,
+  for the common case of "I already put my books where the app expects
+  them, why do I still have to go find and drag them." Appears only when
+  there's something to offer (nothing shown if the folder is empty, or
+  everything in it is already added) — never an empty section cluttering
+  the screen. **Default-checked-state decision:** everything found
+  starts pre-checked, since the common case is "add everything" — she
+  unchecks what she doesn't want rather than checking everything she
+  does. Re-checks whenever the batch changes, so an item she just added
+  (from either source) drops off the list automatically. A file rejected
+  from here (damaged, DRM-protected, etc.) is reported the exact same
+  way as a rejected drag-and-drop/upload — same message, same per-item
+  dismiss.
 - Both toggles default **On** (matches current manual usage pattern).
 - Drag-and-drop is supported but never the *only* way in — the "Choose
   Books..." button must always be present and equally capable, since
@@ -514,9 +535,19 @@ equivalent to closing without saving**):
 ┌───────────────────────────────────┐
 │  Jacka, Benedict                          │
 └───────────────────────────────────┘
+Last name, first name -- like Jacka, Benedict
 
      [ ✕ Clear ]                    [ Save ]
 ```
+- **Optional format hint text** (added docs/BACKLOG.md Epic 10 Phase A,
+  moved from Epic 8.5, real-user feedback) — a short plain-language
+  example directly under the input, only for fields with a particular
+  expected shape: **Author** ("Last name, first name -- like Jacka,
+  Benedict") and **Series Number** ("Just the number -- like 1 or 2.5").
+  Title and Series have no particular expected shape, so no hint for
+  those. Tied to the input for a screen-reader user (`aria-describedby`),
+  so it's announced as part of the field's own description, not a
+  disconnected line of text.
 - **Much larger than an inline text field** — a wide box with a large
   font, easy to see and easy to click into without precise aim, rather
   than a small inline input squeezed next to a label.

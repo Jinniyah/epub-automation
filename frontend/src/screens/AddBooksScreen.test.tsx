@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as client from "../api/client";
 import { AddBooksScreen } from "./AddBooksScreen";
 import type { Book } from "../api/types";
@@ -24,6 +24,15 @@ function noopHandlers() {
 }
 
 describe("AddBooksScreen", () => {
+  beforeEach(() => {
+    // Every test renders this screen, which always calls
+    // getBooksInFolder() on mount -- default to "nothing found" so tests
+    // unrelated to the auto-load feature don't need their own mock, the
+    // same way getDiskSpace's early-return-on-empty-books avoided this
+    // for most (but not all) existing tests above.
+    vi.spyOn(client, "getBooksInFolder").mockResolvedValue({ files: [] });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -234,5 +243,91 @@ describe("AddBooksScreen", () => {
     expect(screen.getByRole("navigation", { name: "Progress" })).not.toHaveAttribute(
       "aria-describedby",
     );
+  });
+
+  describe("auto-load books from books_folder", () => {
+    it("shows nothing when the folder has nothing to offer", async () => {
+      render(<AddBooksScreen books={[]} fixNames cleanLanguage {...noopHandlers()} />);
+
+      await vi.waitFor(() => expect(client.getBooksInFolder).toHaveBeenCalled());
+      expect(screen.queryByText("📁 Books found in your folder")).not.toBeInTheDocument();
+    });
+
+    it("lists found books, pre-checked by default", async () => {
+      vi.spyOn(client, "getBooksInFolder").mockResolvedValue({
+        files: ["Fated.epub", "Cursed.epub"],
+      });
+      render(<AddBooksScreen books={[]} fixNames cleanLanguage {...noopHandlers()} />);
+
+      expect(await screen.findByText("Fated.epub")).toBeInTheDocument();
+      expect(screen.getByText("Cursed.epub")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: /Fated\.epub/ })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /Cursed\.epub/ })).toBeChecked();
+      expect(screen.getByRole("button", { name: "Add 2 books" })).toBeInTheDocument();
+    });
+
+    it("unchecking a book excludes it from the add action", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(client, "getBooksInFolder").mockResolvedValue({
+        files: ["Fated.epub", "Cursed.epub"],
+      });
+      const addSpy = vi.spyOn(client, "addBooksFromFolder").mockResolvedValue({
+        results: [
+          {
+            ok: true,
+            original_filename: "Fated.epub",
+            book_id: "b1",
+            reason: null,
+            message: null,
+          },
+        ],
+      });
+      render(<AddBooksScreen books={[]} fixNames cleanLanguage {...noopHandlers()} />);
+      await screen.findByText("Fated.epub");
+
+      await user.click(screen.getByRole("checkbox", { name: /Cursed\.epub/ }));
+      expect(screen.getByRole("button", { name: "Add 1 book" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Add 1 book" }));
+
+      expect(addSpy).toHaveBeenCalledWith(["Fated.epub"]);
+    });
+
+    it("adds checked books and surfaces any rejections", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(client, "getBooksInFolder").mockResolvedValue({ files: ["Bad.epub"] });
+      vi.spyOn(client, "addBooksFromFolder").mockResolvedValue({
+        results: [
+          {
+            ok: false,
+            original_filename: "Bad.epub",
+            book_id: null,
+            reason: "damaged",
+            message: "This file looks damaged",
+          },
+        ],
+      });
+      const handlers = noopHandlers();
+      render(<AddBooksScreen books={[]} fixNames cleanLanguage {...handlers} />);
+      await screen.findByText("Bad.epub");
+
+      await user.click(screen.getByRole("button", { name: "Add 1 book" }));
+
+      expect(
+        await screen.findByText(/Bad\.epub: This file looks damaged/),
+      ).toBeInTheDocument();
+      expect(handlers.onChanged).toHaveBeenCalled();
+    });
+
+    it("has no axe violations with folder books listed", async () => {
+      vi.spyOn(client, "getBooksInFolder").mockResolvedValue({
+        files: ["Fated.epub"],
+      });
+      const { container } = render(
+        <AddBooksScreen books={[]} fixNames cleanLanguage {...noopHandlers()} />,
+      );
+      await screen.findByText("Fated.epub");
+
+      expect(await axe(container)).toHaveNoViolations();
+    });
   });
 });

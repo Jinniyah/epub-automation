@@ -115,6 +115,13 @@ export interface AddBooksResponse {
   results: AddBookResult[];
 }
 
+/** Screen 1's auto-load-from-folder checklist (docs/BACKLOG.md Epic 10
+ * Phase A, moved from Epic 8.5) -- filenames only, never uploaded or
+ * read until she actually checks and adds them. */
+export interface FolderBooksResponse {
+  files: string[];
+}
+
 export interface DiskSpaceCheckedPath {
   path: string;
   free_bytes: number;

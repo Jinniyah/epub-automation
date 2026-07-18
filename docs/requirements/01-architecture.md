@@ -296,6 +296,8 @@ a whole (see below).
 | `POST /api/books` | `multipart/form-data`, one or more `files` fields | `{"results": [{"ok": bool, "original_filename": str, "book_id": str \| null, "reason": str \| null, "message": str \| null}, ...]}` | One result per uploaded file, **not** a single pass/fail for the whole request — a batch of 5 files where 1 is DRM-protected still returns `200` with 4 successes and 1 `ok: false` entry (`06-safety-error-handling.md` §Input validation: rejected individually, never a silent skip). `reason` is one of `not_epub` / `damaged` / `drm_protected` / `max_files_exceeded` (`pipeline/input_validation.py::RejectionReason`); `message` is the exact plain-language string to show her. Once the current batch is `done`, the next call to this route transparently starts a fresh batch (`backend/app.py::_current_runner()`). |
 | `DELETE /api/books/<book_id>` | — | `{"ok": bool}` | `ok: false` if the book isn't in `pending` status (already started processing — use Cancel instead, `03-gui-ux-design.md` §Screen 1). |
 | `GET /api/disk-space` | — | `{"estimated_total_bytes": int, "any_insufficient": bool, "checked_paths": [{"path": str, "free_bytes": int, "sufficient": bool}, ...]}` | Pre-Start disk-space check, summed across every book currently in the batch (`06-safety-error-handling.md` §Resource & cost safety). Call again after adding/removing books. |
+| `GET /api/books/from-folder` | — | `{"files": [str, ...]}` | Auto-load-from-folder (docs/BACKLOG.md Epic 10 Phase A, moved from Epic 8.5) — `.epub` filenames sitting directly in her remembered `books_folder`, excluding anything already added to the current batch. Never uploads or reads file contents, just names; gracefully empty (not an error) if `books_folder` isn't set or doesn't exist. |
+| `POST /api/books/from-folder` | `{"filenames": [str, ...]}` | Same per-file shape as `POST /api/books` above | Adds a checked subset of the list above. Each file is read directly from `books_folder` (never uploaded through a temp path, since it's already a real file this process can read) — an entry not found there, or path-traversal-shaped, comes back as its own `ok: false` result rather than failing the whole request. |
 
 ### Batch lifecycle
 
@@ -385,6 +387,25 @@ picked") — the path is always resolved server-side.
 | Method & path | Body | Response | Notes |
 |---|---|---|---|
 | `POST /api/quit` | — | `{"ok": true}` | Stops the background server itself (ADR-0001's "closing the tab isn't enough" requirement), not just the browser tab. Exits the process directly (`os._exit(0)`, from a short-delayed background thread so the response reaches her first) rather than a graceful in-process waitress shutdown — see ADR-0007's stale-lock detection, which already treats an abruptly-terminated process as an expected, recoverable case. |
+
+### Serving the built frontend (docs/BACKLOG.md Epic 10 Phase A)
+
+Not a JSON route — a catch-all `GET /` / `GET /<path:path>` registered
+last in `backend/app.py::create_app()`, serving `frontend/dist/`
+(`npm run build`'s static output). `App.tsx` has no client-side routing
+at all (no `react-router`, all internal component state), so there's
+exactly one real path — the fallback serves `index.html`
+unconditionally for any unmatched GET, no route-vs-typo distinction
+needed. The one exception: a GET under `/api/` that doesn't match a
+real route above returns a real `404` JSON body instead, so a mistyped
+API path fails loudly rather than silently looking like a frontend bug.
+`_frontend_dist_dir()` resolves the real directory both ways: relative
+to `backend/app.py` in dev, or under `sys._MEIPASS` once Epic 10 Phase
+B's PyInstaller work actually produces a frozen `.exe` (built to handle
+both from day one, even though only the dev path is exercised yet).
+Live-verified via curl against a real running `python launcher.py`
+process, not just the Flask test client — see `docs/BACKLOG.md` Epic 10
+Phase A.
 
 ## Why these specific technology choices (for the design review)
 

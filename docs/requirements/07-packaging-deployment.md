@@ -5,6 +5,22 @@
 Chosen for the mother's use case — no Python install, no terminal, no
 setup beyond double-clicking a desktop icon.
 
+## Testing-phase stand-in: `run_gui.vbs` (docs/BACKLOG.md Epic 10 Phase A)
+
+Before the real `.exe` (Phase B) exists, `run_gui.vbs` (repo root) gets
+her to the same "no visible console, one double-click" experience for
+real-person testing, without any PyInstaller/signing/installer work: a
+`pythonw.exe` (the windowless CPython interpreter, already present in
+any normal install) wrapper around `launcher.py`. Whoever sets her up
+creates a desktop shortcut to this file the same way they'd eventually
+hand her a shortcut to the real `.exe`. **Explicitly not a substitute
+for real packaging** — she still needs Python and this project's
+`.venv` set up on whatever machine she tests on first (same one-time
+technical-friction pattern as AI-key provisioning and the SmartScreen
+click-through below), and this file is never what actually ships.
+Live-verified via `cscript` (2026-07-18): no console window, no
+lingering process after `/api/quit`.
+
 ## Build pipeline (author-side)
 
 1. `npm run build` in `frontend/` → static `dist/` bundle. Node.js is

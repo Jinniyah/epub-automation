@@ -4,7 +4,15 @@ import { BigButton } from "../components/shared/BigButton";
 import { LiveRegion } from "../components/shared/LiveRegion";
 import { StepProgress } from "../components/shared/StepProgress";
 import { ToggleSwitch } from "../components/shared/ToggleSwitch";
-import { addBooks, getDiskSpace, removeBook, startBatch, updateSettings } from "../api/client";
+import {
+  addBooks,
+  addBooksFromFolder,
+  getBooksInFolder,
+  getDiskSpace,
+  removeBook,
+  startBatch,
+  updateSettings,
+} from "../api/client";
 import type { Book, DiskSpaceReport } from "../api/types";
 
 export interface AddBooksScreenProps {
@@ -50,6 +58,11 @@ export function AddBooksScreen({
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [diskSpace, setDiskSpace] = useState<DiskSpaceReport | null>(null);
   const [starting, setStarting] = useState(false);
+  const [folderBooks, setFolderBooks] = useState<string[]>([]);
+  const [checkedFolderBooks, setCheckedFolderBooks] = useState<Set<string>>(
+    new Set(),
+  );
+  const [addingFromFolder, setAddingFromFolder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refreshDiskSpace = useCallback(async () => {
@@ -63,6 +76,61 @@ export function AddBooksScreen({
   useEffect(() => {
     void refreshDiskSpace();
   }, [refreshDiskSpace]);
+
+  /** Alongside, not instead of, drag-and-drop/"Choose Books..."
+   * (docs/BACKLOG.md Epic 10 Phase A, moved from Epic 8.5). Re-checks
+   * whenever the batch's book count changes, same dependency pattern as
+   * `refreshDiskSpace` above -- an add or remove is exactly when the
+   * backend's own "already added" exclusion could change. **Default-
+   * checked-state decision:** everything found starts pre-checked --
+   * fewest required actions for the common case (she came here to add
+   * everything in her folder), she unchecks anything she doesn't want
+   * rather than having to check everything she does. */
+  const refreshFolderBooks = useCallback(async () => {
+    const response = await getBooksInFolder();
+    setFolderBooks(response.files);
+    setCheckedFolderBooks(new Set(response.files));
+  }, []);
+
+  useEffect(() => {
+    void refreshFolderBooks();
+    // books.length (not referenced inside refreshFolderBooks itself) is
+    // still the right re-run trigger: an add/remove is exactly when the
+    // backend's own "already added" exclusion could change.
+  }, [refreshFolderBooks, books.length]);
+
+  function toggleFolderBookChecked(filename: string) {
+    setCheckedFolderBooks((current) => {
+      const next = new Set(current);
+      if (next.has(filename)) {
+        next.delete(filename);
+      } else {
+        next.add(filename);
+      }
+      return next;
+    });
+  }
+
+  async function handleAddFromFolder() {
+    const filenames = Array.from(checkedFolderBooks);
+    if (filenames.length === 0) return;
+    setAddingFromFolder(true);
+    try {
+      const response = await addBooksFromFolder(filenames);
+      setRejections(
+        response.results
+          .filter((r) => !r.ok)
+          .map((r, index) => ({
+            id: index,
+            filename: r.original_filename,
+            message: r.message ?? "That file couldn't be added.",
+          })),
+      );
+      onChanged();
+    } finally {
+      setAddingFromFolder(false);
+    }
+  }
 
   async function handleFiles(files: FileList | File[]) {
     const list = Array.from(files);
@@ -138,6 +206,46 @@ export function AddBooksScreen({
           }}
         />
       </div>
+
+      {folderBooks.length > 0 ? (
+        <div className="stack-sm">
+          <h2>📁 Books found in your folder</h2>
+          <ul className="row-list">
+            {folderBooks.map((filename) => {
+              const checked = checkedFolderBooks.has(filename);
+              return (
+                <li key={filename} className="row-list__item">
+                  <label
+                    className={
+                      "clickable-row" + (checked ? " clickable-row--checked" : "")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={checked}
+                      onChange={() => toggleFolderBookChecked(filename)}
+                    />
+                    <span className="clickable-row__check" aria-hidden="true">
+                      {checked ? "✓" : ""}
+                    </span>
+                    <span className="clickable-row__label">{filename}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <BigButton
+            variant="plain"
+            disabled={checkedFolderBooks.size === 0 || addingFromFolder}
+            onClick={() => void handleAddFromFolder()}
+          >
+            {addingFromFolder
+              ? "Adding…"
+              : `Add ${checkedFolderBooks.size} book${checkedFolderBooks.size === 1 ? "" : "s"}`}
+          </BigButton>
+        </div>
+      ) : null}
 
       {rejections.length > 0 ? (
         <LiveRegion politeness="assertive">

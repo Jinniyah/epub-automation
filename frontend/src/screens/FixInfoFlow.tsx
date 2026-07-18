@@ -22,6 +22,15 @@ const LABELS: Record<FieldStep, string> = {
   series_number: "Series Number",
 };
 
+// Format hint text (docs/BACKLOG.md Epic 10 Phase A, moved from Epic
+// 8.5) -- same wording as ConfirmMetadataScreen's own popups, since it's
+// the same shared component either way. Title/Series have no particular
+// expected shape, so no hint for those.
+const HINTS: Partial<Record<FieldStep, string>> = {
+  author: "Last name, first name -- like Jacka, Benedict",
+  series_number: "Just the number -- like 1 or 2.5",
+};
+
 /** "No, let me fix it" (03-gui-ux-design.md) -- reuses the exact same
  * Field Correction Popup as the pre-generation confirm step, stepping
  * through Author, Title, and (only for a book that has one) Series and
@@ -109,6 +118,7 @@ export function FixInfoFlow({ book, onDone, onCancel }: FixInfoFlowProps) {
         key={currentStep}
         fieldLabel={LABELS[currentStep]}
         initialValue={values[currentStep]}
+        hint={HINTS[currentStep]}
         saveLabel="Next"
         onClose={onCancel}
         onSave={handleSave}

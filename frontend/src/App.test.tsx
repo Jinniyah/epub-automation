@@ -50,6 +50,7 @@ function mockCore(settingsValue: Settings, statusValue: StatusResponse) {
     any_insufficient: false,
     checked_paths: [],
   });
+  vi.spyOn(client, "getBooksInFolder").mockResolvedValue({ files: [] });
   return { getStatusSpy };
 }
 
@@ -109,6 +110,7 @@ describe("App", () => {
       any_insufficient: false,
       checked_paths: [],
     });
+    vi.spyOn(client, "getBooksInFolder").mockResolvedValue({ files: [] });
 
     render(<App />);
     await screen.findByText("Where are your book files?");

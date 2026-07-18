@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–8.6 complete (2026-07-06 to 2026-07-17). Epic 8.5's two remaining UI-polish items (auto-load-from-folder, Field Correction Popup format hints) moved to Epic 10 Phase A 2026-07-18 rather than left open against a closed epic. **Epics 0–8.6's narrative detail was properly compacted 2026-07-18** — decisions/gotchas kept, blow-by-blow session narration dropped; an earlier claim that this happened 2026-07-17 was itself inaccurate for 8.5/8.6 specifically (they'd stayed in full checklist form until this pass), now corrected. Full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left. **The real dyslexic-reader test moved to the new Wish List section (bottom of this file) 2026-07-18** — the previously-lined-up tester is no longer available; not dropped, just blocked on finding a new one. **Epic 10 resequenced into Phase A/Phase B the same day** — Phase A (Flask serves `frontend/dist/`, a no-console launch shortcut, an end-to-end smoke test) unblocks real-person testing without the full PyInstaller/SmartScreen/installer work; Phase B (the rest of Epic 10) is deliberately deferred until after an initial round of real-person feedback, since iterating against a packaged `.exe` costs a full rebuild plus a fresh SmartScreen click-through on every fix. Not started yet — see Epic 10's own section.
+**Status:** Epics 0–8.6 complete (2026-07-06 to 2026-07-17). Epic 8.5's two remaining UI-polish items (auto-load-from-folder, Field Correction Popup format hints) moved to Epic 10 Phase A 2026-07-18 rather than left open against a closed epic, and built the same day as part of that phase. **Epics 0–8.6's narrative detail was properly compacted 2026-07-18** — decisions/gotchas kept, blow-by-blow session narration dropped; an earlier claim that this happened 2026-07-17 was itself inaccurate for 8.5/8.6 specifically (they'd stayed in full checklist form until this pass), now corrected. Full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left. **The real dyslexic-reader test moved to the new Wish List section (bottom of this file) 2026-07-18** — the previously-lined-up tester is no longer available; not dropped, just blocked on finding a new one. **Epic 10 resequenced into Phase A/Phase B 2026-07-18, and Phase A built the same day**: Flask serves `frontend/dist/`, a no-console `run_gui.vbs` launch shortcut, and a real live smoke test against the actual running single-process server (curl-verified, not just unit-tested) — real-person testing can now start without the full PyInstaller/SmartScreen/installer work. Also moved and built Epic 8.5's two leftover UI-polish items here in the same pass (auto-load-from-folder, Field Correction Popup format hints). Phase B (the rest of Epic 10) stays deliberately deferred until after an initial round of real-person feedback, since iterating against a packaged `.exe` costs a full rebuild plus a fresh SmartScreen click-through on every fix — see Epic 10's own section.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -364,10 +364,6 @@ real-user report) is recoverable from git history and from
     per-book focus the app already tracks (or trivially can) at every
     stage except the multi-book voice table, where "most recently
     selected row" is the one genuinely new bit of state to add.
-    ~~`derive_batch_state()` yields one state for the whole batch, but
-    individual books can legitimately be at different points — decide
-    whether the bar reflects the furthest-behind book, the
-    furthest-ahead, or something else specific to multi-book mode~~
   - **Active-book display — decided 2026-07-17 (direct request):** the
     active book's title renders on its own line directly under the
     step-progress row, not inlined into the step label itself (i.e. not
@@ -471,9 +467,14 @@ minute PyInstaller build and re-doing a SmartScreen click-through on
 every single fix (see the reasoning below Phase B for why that ordering
 matters, not just convenience).
 
-### Phase A — unblocks real-person testing, do first
+### Phase A — unblocks real-person testing, do first ✅ Complete (2026-07-18)
 
-- [ ] **Flask must gain a route serving `frontend/dist/`** (static files +
+**Built and verified 2026-07-18** (462 backend tests / 96% coverage, 224
+frontend tests / 32 files, both clean via real `pytest --cov` and
+`npm run build && npm run lint && npm test` passes; plus a real live
+smoke test, see below):
+
+- [x] **Flask must gain a route serving `frontend/dist/`** (static files +
   a fallback to `index.html` for any non-`/api/*` GET). Confirmed missing
   while closing out Epic 7/8: `backend/app.py` currently only registers
   `/api/*` JSON routes, so `python launcher.py` alone opens a browser to
@@ -485,51 +486,65 @@ matters, not just convenience).
   it's all internal component state (`phase`/`subView`), one real URL
   path (`/`) — so the fallback route doesn't need to distinguish "a real
   client route" from "a 404," it can serve `index.html` for any
-  unmatched GET unconditionally. **Build the dist-path resolver to
-  already handle both the dev and frozen-`.exe` cases** (check
+  unmatched GET unconditionally (a mistyped `/api/*` path still gets a
+  real 404, checked explicitly). **Built to already handle both the dev
+  and frozen-`.exe` cases** (`_frontend_dist_dir()` checks
   `sys._MEIPASS` when frozen, else a path relative to `backend/app.py`)
   even though Phase B's PyInstaller work is what actually exercises the
-  frozen branch — cheap to get right once now rather than revisiting
-  this same function in Phase B.
-- [ ] **A no-console way to hand her a working GUI without a full
-  `.exe`** — not previously a backlog item, added 2026-07-18 alongside
-  the resequencing above, since it's the actual near-term unblocker.
-  Once Flask serves `frontend/dist/`, `python launcher.py` alone is a
-  complete, real single-process app — the only thing missing for a
-  clean handoff is not making her see a terminal window. A `.vbs`
-  wrapper (or a shortcut targeting `pythonw.exe`, the windowless
-  interpreter that already ships with a normal CPython install) invoking
-  `launcher.py` from the project's `.venv`, saved as a desktop shortcut,
-  gets there without any PyInstaller/signing/installer work at all. This
-  is explicitly a **testing-phase stand-in, not a replacement for real
-  packaging** — she still needs Python/the venv set up on whatever
-  machine she tests on (a technical family member does that once, same
-  pattern as AI-key provisioning and the SmartScreen click-through
-  elsewhere in this doc), and Epic 10 isn't "done" until Phase B's real
-  `.exe` removes that dependency too.
-- [ ] **Smoke-test the real single-process path end to end** — `npm run
-  build` in `frontend/`, then `python launcher.py` alone (no second
-  terminal, no `npm run dev`), confirming the full flow (Screen 1 →
-  identification → voice picker → generation → review) works exactly as
-  it does in dev mode. Worth doing deliberately once Phase A's other two
-  items land, not just assumed to work: this is the first time the
-  single-process path is actually exercised, and it's better to catch a
-  path-resolution or static-asset-caching bug here, testing it yourself,
-  than to have it be the first thing she hits.
+  frozen branch.
+- [x] **A no-console way to hand her a working GUI without a full
+  `.exe`** — `run_gui.vbs` (repo root), a `pythonw.exe` wrapper around
+  `launcher.py`. Live-tested via `cscript` (see below), not just written:
+  confirmed no console window, no lingering process after `/api/quit`.
+  Whoever sets her up creates a desktop shortcut to this file (right-
+  click → "Send to" → "Desktop (create shortcut)"). Explicitly a
+  **testing-phase stand-in, not a replacement for real packaging** — she
+  still needs Python/the venv set up on whatever machine she tests on (a
+  technical family member does that once, same pattern as AI-key
+  provisioning and the SmartScreen click-through elsewhere in this doc),
+  and Epic 10 isn't "done" until Phase B's real `.exe` removes that
+  dependency too.
+- [x] **Smoke-test the real single-process path end to end** — `npm run
+  build` in `frontend/`, then a real `python launcher.py` run (no second
+  terminal, no `npm run dev`), confirmed live via curl against the
+  actual running server: `/` serves the real built `index.html`, a real
+  static asset under `/assets/` serves correctly, `/api/status` returns
+  real JSON, an arbitrary unknown path still falls back to `index.html`
+  (no client routing to break), and `/api/some-typo` still returns a
+  real 404 JSON rather than silently serving HTML. Then the same check
+  again through `run_gui.vbs` specifically (via `cscript`, confirming
+  the wrapper itself launches the real server, not just `launcher.py`
+  directly) — both runs shut down cleanly via `/api/quit`. **What this
+  didn't cover:** a full manual click-through of every screen (Screen 1
+  → identification → voice picker → generation → review) in a real
+  browser — the actual risk this item named (path-resolution/static-
+  asset-caching bugs in the single-process path specifically, as opposed
+  to route logic already covered by the full backend test suite) is
+  confirmed fixed; a real end-to-end UI walkthrough is still worth doing
+  before or during her actual testing.
 
-**Moved here from Epic 8.5 (2026-07-18, direct request):** two real
-UI-polish items that never got built, worth finishing before she's
-actually testing rather than after.
+**Moved here from Epic 8.5 (2026-07-18, direct request), also built and
+verified in this pass:** two real UI-polish items that never got built.
 
-- [ ] **Screen 1: auto-load books already in `books_folder`** as a
+- [x] **Screen 1: auto-load books already in `books_folder`** as a
   selectable checklist, alongside (not instead of) the existing
-  drag-and-drop. Needs: a backend route to list `.epub` files without
-  uploading them first, a default-checked-state decision, and a
-  `03-gui-ux-design.md` Screen 1 update so the doc doesn't quietly
-  diverge from the code.
-- [ ] **Format hint text on Field Correction Popup inputs** (Author:
-  "Last Name, First Name"; Series Number: numeric format) — applies
-  everywhere the one shared popup component is used.
+  drag-and-drop. `GET /api/books/from-folder` lists `.epub` files
+  already in her remembered folder (excluding anything already added to
+  the batch); `POST /api/books/from-folder` adds a checked subset,
+  reusing the exact same per-file result shape as the upload route so
+  the frontend's existing rejection-handling logic needed no changes.
+  **Default-checked-state decision:** everything found starts pre-
+  checked — fewest required actions for the common case, she unchecks
+  what she doesn't want rather than checking everything she does.
+  Refetches whenever the batch's book count changes, so an item she
+  just added (from either source) drops off the list automatically.
+- [x] **Format hint text on Field Correction Popup inputs** (Author:
+  "Last name, first name -- like Jacka, Benedict"; Series Number: "Just
+  the number -- like 1 or 2.5") — a new optional `hint` prop on the one
+  shared `FieldCorrectionPopup` component, tied to the input via
+  `aria-describedby`, wired at both call sites (`ConfirmMetadataScreen`,
+  `FixInfoFlow`). Title/Series have no particular expected shape, so no
+  hint for those.
 
 ### Phase B — full packaging, deliberately after initial real-person feedback
 
@@ -586,8 +601,12 @@ packaging first and iterating against the finished artifact.
 |---|---|
 | Kokoro/PyInstaller packaging risk | 1 — done |
 | Dependency version pinning | 0 — done |
-| Perchance vs. Kokoro output parity | 10 (moved from 4 — needs a real packaged `.exe` on real hardware) |
-| CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 10 (moved from 4, same reason) |
+| Perchance vs. Kokoro output parity | 10 Phase B (moved from 4 — needs a real packaged `.exe` on real hardware) |
+| CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 10 Phase B (moved from 4, same reason) |
+| Flask doesn't serve the built frontend | 10 Phase A — done, built and verified 2026-07-18 (`_frontend_dist_dir()`/catch-all route in `backend/app.py`, live curl-verified against a real running server). |
+| No-console GUI launch for real-person testing | 10 Phase A — done, built and verified 2026-07-18 (`run_gui.vbs`, live-tested via `cscript`). |
+| Screen 1 auto-load-from-folder | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`GET`/`POST /api/books/from-folder`). |
+| Field Correction Popup format hints | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`FieldCorrectionPopup`'s new `hint` prop). |
 | MAX_FILES-exceeded rejection message, Screen 1 UI | 8 — done |
 | Session-local same-series voice default | 8 — decided against (moved from 4): the backend only ever hands out one global default; a second, client-only "current default" risked silently disagreeing with the server for marginal convenience. |
 | Her-facing copy wording, unassisted dry-run test | 9 |
