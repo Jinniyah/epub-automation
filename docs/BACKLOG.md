@@ -597,6 +597,29 @@ resolve()-and-containment check that was already there as defense in
 depth. New regression test adds a real file with a space in its name
 and confirms the full add flow succeeds.
 
+**A real gap found and fixed the same day, while diagnosing the two bugs
+above:** the only way to stop the background server was "Quit for now"
+on the Working screen — every other screen had no way to end the
+session at all except closing the browser tab, which (by design,
+ADR-0001) never actually stops the server. This directly caused real
+confusion diagnosing the two bugs above: a still-running server from an
+earlier attempt got mistaken for "already closed," and its stale,
+pre-fix code masked the actual fix behind what looked like a persistent
+bug. **This was the original design's own scope, not a regression** —
+`03-gui-ux-design.md` always said Quit belonged to the Working screen,
+with a persistent header merely *allowed* as an alternative, never
+built that way. **Fix:** `AppHeader` gained its own confirm-gated Quit
+button ("Stop for now? You can pick up right where you left off next
+time."), shown on every screen *except* first-launch onboarding
+(nothing meaningful running yet) and the Working screen itself, which
+already has its own — `App.tsx` computes visibility by mirroring the
+same `state`/`needs_input` branching `renderScreen()` already uses, so
+the collision prompt (the *other* thing `state: "working"` can mean,
+which has no Quit button of its own) still gets the header's. New
+tests cover every phase/state boundary directly, including a check that
+exactly one "Quit for now" button ever renders on the Working screen,
+never two.
+
 **Why this ordering, not just "nice to have first":** once she's testing
 against a real packaged `.exe`, every bug-fix cycle costs a full
 PyInstaller rebuild (multi-GB, minutes, not seconds) *and* a fresh

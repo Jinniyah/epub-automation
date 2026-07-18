@@ -763,9 +763,23 @@ back anytime.            book completely.
   reassurance, not something she has to discover by hovering). A
   screen-reader user gets the same caption text as part of each button's
   accessible name/description — nothing here is sighted-only.
-- A big, plain **"Quit for now"** control must be reachable from this (or
-  a persistent header) — closing the tab is safe, but there needs to be
-  an explicit, deliberate way to fully stop the background server too.
+- A big, plain **"Quit for now"** control sits in this screen's own
+  `.screen-actions` bar, alongside Pause/Cancel — closing the tab is
+  safe, but there needs to be an explicit, deliberate way to fully stop
+  the background server too.
+- **Also reachable from the persistent header, on every other screen
+  (added docs/BACKLOG.md Epic 10 Phase A, real live incident):**
+  originally scoped to this screen only, with a header-based version
+  merely allowed as an alternative, never built. A real session
+  surfaced why that was too narrow: closing the tab never stops the
+  background server, and with no way to end the session anywhere except
+  here, an already-running server from an earlier attempt got mistaken
+  for "already closed," silently masking a real fix behind stale code.
+  The header's version (`AppHeader`) is confirm-gated ("Stop for now?
+  You can pick up right where you left off next time.") and appears on
+  every screen *except* first-launch onboarding (nothing meaningful is
+  running yet) and this screen itself, which already has its own —
+  showing both here would be a confusing duplicate, not an improvement.
 
 ### Screen: Review (per book, after generation)
 ```

@@ -188,6 +188,16 @@ button {
   font-size: 1.3rem;
 }
 
+/* Groups Quit + Home so they sit together on the header's right side
+ * (the header's own `justify-content: space-between` still pushes this
+ * whole group away from the brand on the left). */
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 /* Home: real, high-contrast button chrome -- a filled pill, not a
  * muted link -- so it can't blend into the page background the way the
  * old version did. */
@@ -212,6 +222,34 @@ button {
 .app-header__home:hover {
   background: var(--color-primary-soft-strong);
   border-color: var(--color-primary);
+}
+
+/* Quit: deliberately quieter than Home's filled-pill treatment -- it's
+ * reachable from nearly every screen now (real incident: closing the
+ * tab never stops the background server, and there was previously no
+ * other way to end the session outside the Working screen), but it's a
+ * rarer, more consequential action than Home, so it shouldn't visually
+ * compete with Home for attention on every single screen it appears on. */
+.app-header__quit {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-border-soft);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.app-header__quit:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 main {

@@ -30,4 +30,59 @@ describe("AppHeader", () => {
     const { container } = render(<AppHeader onHome={() => {}} />);
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  describe("Quit for now", () => {
+    it("hides Quit when it isn't provided", () => {
+      render(<AppHeader />);
+      expect(
+        screen.queryByRole("button", { name: "Quit for now" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does nothing until the confirm dialog is accepted", async () => {
+      const user = userEvent.setup();
+      const onQuit = vi.fn();
+      render(<AppHeader onQuit={onQuit} />);
+
+      await user.click(screen.getByRole("button", { name: "Quit for now" }));
+      expect(
+        screen.getByRole("heading", { name: "Stop for now?" }),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Never mind" }));
+
+      expect(onQuit).not.toHaveBeenCalled();
+      expect(
+        screen.queryByRole("heading", { name: "Stop for now?" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("calls onQuit when the confirm dialog is accepted", async () => {
+      const user = userEvent.setup();
+      const onQuit = vi.fn();
+      render(<AppHeader onQuit={onQuit} />);
+
+      await user.click(screen.getByRole("button", { name: "Quit for now" }));
+      await user.click(screen.getByRole("button", { name: "Yes, stop for now" }));
+
+      expect(onQuit).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows both Home and Quit together when both are provided", () => {
+      render(<AppHeader onHome={() => {}} onQuit={() => {}} />);
+
+      expect(screen.getByRole("button", { name: "🏠 Home" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Quit for now" }),
+      ).toBeInTheDocument();
+    });
+
+    it("has no axe violations with the confirm dialog open", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<AppHeader onQuit={() => {}} />);
+
+      await user.click(screen.getByRole("button", { name: "Quit for now" }));
+
+      expect(await axe(container)).toHaveNoViolations();
+    });
+  });
 });

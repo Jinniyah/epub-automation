@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { BigButton } from "./BigButton";
+import { Overlay } from "./Overlay";
+
 export interface AppHeaderProps {
   /** Only provided when going Home is actually safe -- mid-batch
    * (identifying/voice-pick/working/review) the screen she's on already
@@ -6,6 +10,42 @@ export interface AppHeaderProps {
    * abandoning in-progress work. Real navigation only, never a Cancel
    * in disguise. */
   onHome?: () => void;
+  /** "Quit for now" reachable from (almost) every screen, not just the
+   * Working screen -- added after a real live incident: closing the
+   * browser tab never stops the background server (ADR-0001), and with
+   * no way to end the session anywhere else, a still-running server from
+   * an earlier attempt got mistaken for "already closed," masking a real
+   * fix behind stale, already-running code. Omitted during first-launch
+   * onboarding (nothing meaningful to stop yet) and on the Working
+   * screen itself, which already has its own dedicated Quit button
+   * alongside Pause/Cancel -- showing both there would be a confusing
+   * duplicate, not an improvement. Confirm-gated (unlike Home, this
+   * actually stops the background server, not just navigation) but kept
+   * as short and blunt as the button itself, matching this app's other
+   * confirm dialogs (Cancel, "Nuke everything in progress"). */
+  onQuit?: () => void;
+}
+
+function QuitConfirmDialog({
+  onConfirm,
+  onClose,
+}: {
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Overlay titleId="header-quit-heading" title="Stop for now?" onClose={onClose}>
+      <p>You can pick up right where you left off next time.</p>
+      <div className="button-row">
+        <BigButton variant="primary" onClick={onConfirm}>
+          Yes, stop for now
+        </BigButton>
+        <BigButton variant="plain" onClick={onClose}>
+          Never mind
+        </BigButton>
+      </div>
+    </Overlay>
+  );
 }
 
 /** A real `<header>` landmark on every screen, distinct from `<main>`
@@ -24,7 +64,9 @@ export interface AppHeaderProps {
  * problems are fixed the same way: give both elements a real, visible
  * home to live in.
  */
-export function AppHeader({ onHome }: AppHeaderProps) {
+export function AppHeader({ onHome, onQuit }: AppHeaderProps) {
+  const [confirmingQuit, setConfirmingQuit] = useState(false);
+
   return (
     <header className="app-header">
       <p className="app-header__brand">
@@ -33,10 +75,29 @@ export function AppHeader({ onHome }: AppHeaderProps) {
         </span>
         Audiobook Maker
       </p>
-      {onHome ? (
-        <button type="button" className="app-header__home" onClick={onHome}>
-          🏠 Home
-        </button>
+      {onHome || onQuit ? (
+        <div className="app-header__actions">
+          {onQuit ? (
+            <button
+              type="button"
+              className="app-header__quit"
+              onClick={() => setConfirmingQuit(true)}
+            >
+              Quit for now
+            </button>
+          ) : null}
+          {onHome ? (
+            <button type="button" className="app-header__home" onClick={onHome}>
+              🏠 Home
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {confirmingQuit && onQuit ? (
+        <QuitConfirmDialog
+          onConfirm={onQuit}
+          onClose={() => setConfirmingQuit(false)}
+        />
       ) : null}
     </header>
   );

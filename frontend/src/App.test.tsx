@@ -328,6 +328,105 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  describe("header Quit for now (docs/BACKLOG.md Epic 10 Phase A)", () => {
+    it("is hidden during first-launch onboarding", async () => {
+      vi.spyOn(client, "getSettings").mockResolvedValue(
+        settings({ books_folder: "", output_folder: "" }),
+      );
+      vi.spyOn(client, "getWelcomeBack").mockResolvedValue({ pending_book_ids: [] });
+      vi.spyOn(client, "getStatus").mockResolvedValue(status());
+
+      render(<App />);
+
+      await screen.findByText("Where are your book files?");
+      expect(
+        screen.queryByRole("button", { name: "Quit for now" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("is shown on Screen 1", async () => {
+      mockCore(settings(), status());
+
+      render(<App />);
+      await screen.findByText("Add your books");
+
+      expect(
+        screen.getByRole("button", { name: "Quit for now" }),
+      ).toBeInTheDocument();
+    });
+
+    it("is hidden on the plain Working screen, which already has its own", async () => {
+      mockCore(
+        settings(),
+        status({
+          state: "working",
+          active_book_id: "b1",
+          books: [book({ status: "generating", title: "Fated" })],
+        }),
+      );
+
+      render(<App />);
+      await screen.findByText("Working on: Fated");
+
+      // Exactly one "Quit for now" -- WorkingScreen's own -- not a
+      // second, duplicate header button on top of it.
+      expect(screen.getAllByRole("button", { name: "Quit for now" })).toHaveLength(1);
+    });
+
+    it("is shown on the collision prompt, which has no Quit button of its own", async () => {
+      mockCore(
+        settings(),
+        status({
+          state: "working",
+          active_book_id: "b1",
+          needs_input: {
+            book_id: "b1",
+            type: "output_collision",
+            collision: { artifact: "audiobook", path: "C:\\x" },
+          },
+          books: [book({ status: "needs_input", title: "Fated" })],
+        }),
+      );
+
+      render(<App />);
+      await screen.findByText('You already have a audiobook called "Fated"');
+
+      expect(
+        screen.getByRole("button", { name: "Quit for now" }),
+      ).toBeInTheDocument();
+    });
+
+    it("is shown inside the More options hub", async () => {
+      const user = userEvent.setup();
+      mockCore(settings(), status());
+
+      render(<App />);
+      await screen.findByText("Add your books");
+      await user.click(screen.getByRole("button", { name: "⚙️ More options" }));
+      await screen.findByText("More options");
+
+      expect(
+        screen.getByRole("button", { name: "Quit for now" }),
+      ).toBeInTheDocument();
+    });
+
+    it("quits from Screen 1 after confirming", async () => {
+      const user = userEvent.setup();
+      mockCore(settings(), status());
+      vi.spyOn(client, "quitApp").mockResolvedValue({ ok: true });
+
+      render(<App />);
+      await screen.findByText("Add your books");
+
+      await user.click(screen.getByRole("button", { name: "Quit for now" }));
+      await user.click(screen.getByRole("button", { name: "Yes, stop for now" }));
+
+      expect(
+        await screen.findByText("You can close this window now."),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("opens Words and Voice History from the More options hub", async () => {
     const user = userEvent.setup();
     mockCore(settings(), status());

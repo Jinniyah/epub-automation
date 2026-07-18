@@ -365,9 +365,36 @@ function App() {
 
   const onHome = subView !== null ? () => setSubView(null) : undefined;
 
+  /** "Quit for now" reachable from (almost) every screen, not just the
+   * Working screen -- added after a real live incident: closing the tab
+   * never stops the background server, and with no other way to end the
+   * session, an already-running server from an earlier attempt got
+   * mistaken for "already closed" (docs/BACKLOG.md Epic 10 Phase A).
+   * Omitted during first-launch onboarding (`loading`/`first-launch-*`)
+   * -- nothing meaningful is running yet -- and omitted specifically
+   * when the plain `WorkingScreen` itself is what's rendered, since it
+   * already has its own dedicated Quit button; `CollisionPrompt` (the
+   * *other* thing `state: "working"` can mean) has no such button of its
+   * own, so it still gets the header's. */
+  const status = polling.status;
+  const plainWorkingScreenActive =
+    status?.state === "working" &&
+    !(
+      status.needs_input?.type === "output_collision" &&
+      status.needs_input.collision &&
+      status.books.some((b) => b.id === status.needs_input?.book_id)
+    );
+  const onHeaderQuit =
+    (phase === "main" || phase === "welcome-back") && !plainWorkingScreenActive
+      ? () => {
+          void quitApp();
+          setPhase("quit");
+        }
+      : undefined;
+
   return (
     <>
-      <AppHeader onHome={onHome} />
+      <AppHeader onHome={onHome} onQuit={onHeaderQuit} />
       {renderScreen()}
     </>
   );
