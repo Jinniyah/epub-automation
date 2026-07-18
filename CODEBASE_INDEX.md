@@ -26,7 +26,7 @@ File map + migration/schema table. Kept current as epics land real code.
 | `pipeline/profanity.txt` | 61-entry default list, ported from `epub-sanitize`. | Epic 0 |
 | `spike/kokoro_spike.py` | **Complete.** Verifies kokoro import, espeak-ng DLL load, KPipeline init, audio gen — in venv and as built `.exe`. Confirmed working on Windows 2026-07-08. | Epic 1 (done) |
 | `pipeline/sanitize_stage.py` | Real (Epic 2). All 10 security controls from `PS_Run-CleanUpEpub.ps1`. `_ExtractEpub(SafeZipOperation)` + `SanitizeStage` w/ sidecar CSV + audit columns. | Epic 2 |
-| `pipeline/rename_stage.py` | Real (Epic 3). `RenameStage` + `FILENAME_PATTERN`/`build_filename` ported from `epub-renamer`'s `renamer.py`/`main.py`; copy-based (not in-place rename) to fit this pipeline's stage-folder model; dry-run + name-conflict handling; silent per-file `NullProvider` fallback on AI failure. | Epic 3 |
+| `pipeline/rename_stage.py` | Real (Epic 3). `RenameStage` + `FILENAME_PATTERN`/`build_filename` ported from `epub-renamer`'s `renamer.py`/`main.py`; copy-based (not in-place rename) to fit this pipeline's stage-folder model; dry-run + name-conflict handling; silent per-file `NullProvider` fallback on AI failure. **Real bug found and fixed 2026-07-18, real user report:** `_pass_through_already_normalized()` skipped re-renaming/AI (correctly — an already-normalized filename needs neither) but also skipped populating `title`/`author`/`series` entirely, which `BatchRunner._run_identification()` can't distinguish from a genuine AI failure (both look like "no title set"). Fixed via new `_parse_normalized_filename()`, which parses those fields back out of the filename directly, since `FILENAME_PATTERN` match means the filename is already in `build_filename()`'s own output shape. | Epic 3 |
 | `pipeline/audio_stage.py` | Real (Epic 4, extended Epic 6). `AudioStage` — per-book chapter/chunk TTS loop, ID3 tagging via mutagen, per-chunk resume, retry-then-error. Reuses `rename_stage.build_filename()` directly (minus `.epub`) for the output folder/file base name. Epic 6 added `on_progress`/`should_stop` Observer-pattern hooks (optional, default `None`, backward-compatible) — `pipeline/batch_runner.py`'s only way to report progress and implement Pause/Cancel without this stage ever knowing an HTTP server or batch runner exists. | Epic 4/6 |
 | `pipeline/retag_stage.py` | Real (Epic 5). `RetagStage` — fixes ID3 tags/filenames/**containing folder name** (bug fix over the original script) for an already-generated audiobook folder. Folder-name parsing (`parse_folder_metadata`/`parse_stem_metadata`) handles both the old standalone-tool shape and this pipeline's own `build_filename()` shape; reuses `rename_stage.build_filename()` directly for all naming (ADR-0016), same pattern `audio_stage.py` already uses. Always manually triggered (`applies_to()` always `False`). | Epic 5 |
 | `pipeline/tts_engine.py` | Real (Epic 4, extended Epic 8). `TTSEngine` wraps `kokoro.KPipeline`, lazily imported/constructed (first real call only). `VOICES`/`DEFAULT_VOICE`, `estimate_audio_bytes()` (disk-space formula), `ensure_voice_samples()` (cache + version-tagging, now typed against `TTSEngineLike` rather than the concrete class — one less coupling point). MP3 encoding via `lameenc` at Kokoro's native 24kHz — see session notes below. Epic 8 added `installed_kokoro_version()` (package-metadata-only, never imports `kokoro` itself) to finally wire up `ensure_voice_samples()`'s cache-invalidation trigger, deferred since Epic 4/6. | Epic 4 / Epic 8 |
@@ -69,6 +69,36 @@ keyed by old version, add a row here.
 
 ## Session notes
 
+**Epic 3, a third post-Epic-10 bug fix, same day (real user report):**
+a book whose filename already matched `FILENAME_PATTERN` -- re-imported
+from an earlier run, or from one of the predecessor tools this project
+merges -- landed on the "We couldn't quite figure out this book" screen
+with no title, author, or series at all, and no AI provider was ever
+called despite one being configured. Diagnosed directly from the user's
+own real `audit_log.csv`/`state.json` (`skipped_reason:
+already_normalized, ai_used: no`, every metadata field blank) rather
+than asking for a screenshot. **Root cause:**
+`RenameStage._pass_through_already_normalized()` correctly skipped
+re-renaming and the AI call (an already-normalized filename needs
+neither) but also skipped populating metadata entirely --
+`BatchRunner._run_identification()` routes any book with no `title` to
+`ai_enrichment_failed` regardless of *why* it's missing, so "nothing
+more to do" was indistinguishable from a genuine AI failure. **Fix:**
+new `_parse_normalized_filename()` -- since a `FILENAME_PATTERN` match
+means the filename is already in `build_filename()`'s own output shape,
+its title/author/series/series_number can be parsed back out reliably
+(title via a new regex; author/series reuse the existing
+`guess_author_from_filename()`/`guess_series_from_filename()` helpers,
+which already work against arbitrary filenames). No AI call needed --
+the filename already encodes everything. Verified directly against the
+exact real filename that surfaced this ("Jordan, Robert -- The Wheel of
+Time #03 -- The Dragon Reborn.epub") via a live script, plus two new
+regression tests (standalone-book and series shapes). 472 backend tests
+/ 96.42% coverage, clean `ruff`/`black`/`mypy`. **Needs a running server
+restart to take effect** -- this is a code fix, not a state fix, so any
+already-running `python launcher.py`/`run_gui.vbs` process still has the
+old buggy code loaded in memory.
+
 **Epic 10 Phase A, a real gap found live while diagnosing the two bug
 fixes below (2026-07-18):** "Quit for now" only ever existed on the
 Working screen -- every other screen (Screen 1, Voice Pick, Review,
@@ -88,7 +118,7 @@ now? You can pick up right where you left off next time."), computed in
 launch onboarding and the Working screen itself (which keeps its own,
 to avoid a confusing duplicate). New tests cover every phase/state
 boundary directly, including a check that exactly one "Quit for now"
-button ever renders on the Working screen. 470 backend tests unchanged
+button ever renders on the Working screen. 472 backend tests unchanged
 (no backend code touched), 235 frontend tests / 32 files, both clean.
 
 **Epic 10 Phase A, post-verification bug fix (2026-07-18, real user
@@ -142,7 +172,7 @@ since they only ever used filenames *without* spaces.
 
 **Epic 10 Phase A (2026-07-18, same day as Epic 9's own pass below):**
 built and live-verified everything needed to unblock real-person testing
-without the full PyInstaller/SmartScreen/installer work. 470 backend
+without the full PyInstaller/SmartScreen/installer work. 472 backend
 tests / 96% coverage, 235 frontend tests / 32 files, both clean via a
 real `pytest --cov` and a real `npm run build && npm run lint && npm
 test` pass.

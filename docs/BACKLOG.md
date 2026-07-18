@@ -69,6 +69,30 @@ per-file `NullProvider` fallback on AI failure. `MAX_FILES`
 batch-level enforcement deferred to Epic 6 (needed a Screen 1 that
 didn't exist yet — resolved there via `check_batch_capacity()`).
 
+**Real bug found and fixed 2026-07-18, real user report:** a book whose
+filename already matched `FILENAME_PATTERN` (e.g. re-imported from an
+earlier run of this tool, or a predecessor tool that already normalized
+it) landed on the "We couldn't quite figure out this book" screen with
+no title, author, or series set at all — and no AI provider was ever
+called, despite one being configured (OpenAI). **Root cause:**
+`RenameStage._pass_through_already_normalized()` correctly skipped
+re-renaming and the AI call (an already-normalized filename needs
+neither), but *also* skipped populating the metadata fields entirely —
+`BatchRunner._run_identification()` routes any book with no `title` to
+`ai_enrichment_failed`, regardless of *why* it's missing, so "already
+normalized, nothing more to do" looked identical to a genuine AI
+failure. **Fix:** `_parse_normalized_filename()` — since a filename
+already matching `FILENAME_PATTERN` is, by definition, already in
+`build_filename()`'s own output shape, its title/author/series/
+series_number can be parsed back out *reliably*, not guessed the way
+`guess_author_from_filename()`/`guess_series_from_filename()` do
+against an arbitrary unnormalized filename (both still reused here for
+author/series; only title-extraction is new). No AI call needed for
+this path — the filename already encodes everything. New regression
+tests cover both the standalone-book and series shapes, using the exact
+real filename that surfaced this (`"Jordan, Robert — The Wheel of Time
+#03 — The Dragon Reborn.epub"`).
+
 ---
 
 ## Epic 4 — Audio Stage (Kokoro TTS Integration) ✅ Complete (2026-07-10)
@@ -469,7 +493,7 @@ matters, not just convenience).
 
 ### Phase A — unblocks real-person testing, do first ✅ Complete (2026-07-18)
 
-**Built and verified 2026-07-18** (470 backend tests / 96% coverage, 224
+**Built and verified 2026-07-18** (472 backend tests / 96% coverage, 224
 frontend tests / 32 files, both clean via real `pytest --cov` and
 `npm run build && npm run lint && npm test` passes; plus a real live
 smoke test, see below):

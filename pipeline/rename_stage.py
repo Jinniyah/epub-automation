@@ -91,6 +91,39 @@ DEFAULT_MAX_FILES = 50
 
 _RESULT_KEYS = ("title", "author_first", "author_last", "series", "series_number")
 
+# The Title component of an already-`FILENAME_PATTERN`-matching name --
+# whatever follows the *last* "— " before ".epub". Deliberately not
+# anchored at the string start (unlike FILENAME_PATTERN itself): letting
+# `re.search()` find the rightmost "— ...epub" segment is what correctly
+# skips past an author/series "— " that appears earlier in the same
+# filename (`guess_series_from_filename()`'s own "— Series #NN —" match
+# is between two em dashes; this one is the one after it, or the only
+# one, in the no-series shape).
+_NORMALIZED_TITLE_RE = re.compile(r"—\s*(?P<title>[^—]+)\.epub$", re.IGNORECASE)
+
+
+def _parse_normalized_filename(filename: str) -> dict[str, Any]:
+    """Parse title/author/series/series_number back out of a filename
+    already confirmed to match `FILENAME_PATTERN` -- i.e. already exactly
+    in `build_filename()`'s own output shape, so this is a reliable
+    *extraction*, not a best-effort guess the way
+    `guess_author_from_filename()`/`guess_series_from_filename()` are
+    against an arbitrary, unnormalized filename (they're still reused
+    here for author/series, since the parsing logic is identical either
+    way; only title-extraction is new).
+    """
+    author_first, author_last = guess_author_from_filename(filename)
+    series, series_number = guess_series_from_filename(filename)
+    title_match = _NORMALIZED_TITLE_RE.search(filename)
+    title = title_match.group("title").strip() if title_match else None
+    return {
+        "title": title,
+        "author_first": author_first,
+        "author_last": author_last,
+        "series": series,
+        "series_number": series_number,
+    }
+
 
 def build_filename(meta: dict[str, Any]) -> str:
     """Construct a normalized EPUB filename from metadata fields.
@@ -321,16 +354,29 @@ class RenameStage:
     def _pass_through_already_normalized(
         self, book: BookState, epub_path: Path, filename: str
     ) -> BookState:
+        """A filename already matching `FILENAME_PATTERN` needs no
+        re-renaming and no AI call -- but it still needs its metadata
+        fields actually populated, the same as every other book. **Real
+        bug, found via a real user report:** this used to skip that too,
+        copying the file through with `title`/`author`/`series` all left
+        unset -- since `BatchRunner._run_identification()` routes a book
+        with no `title` to the "AI enrichment failed" screen regardless
+        of *why* it's missing, "already normalized and therefore skipped
+        entirely" looked identical to a genuine AI failure, and the file
+        never got the metadata a plain filename parse could have given it
+        for free.
+        """
         self._output_folder.mkdir(parents=True, exist_ok=True)
         out_path = self._output_folder / filename
         if out_path.resolve() != epub_path.resolve():
             shutil.copy2(epub_path, out_path)
 
+        final_meta = _parse_normalized_filename(filename)
         self._audit_log.append(
             self._audit_row(
                 filename,
                 filename,
-                {},
+                final_meta,
                 ai_used="no",
                 renamed="no",
                 skipped_reason="already_normalized",
@@ -339,7 +385,12 @@ class RenameStage:
         return BookState(
             book.book_id,
             "renamed",
-            {**book.data, "filename": filename, "epub_path": str(out_path)},
+            {
+                **book.data,
+                **final_meta,
+                "filename": filename,
+                "epub_path": str(out_path),
+            },
         )
 
     def _audit_row(

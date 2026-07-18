@@ -394,6 +394,56 @@ def test_run_skips_ai_call_for_already_normalized_filename(
     assert rows[0]["renamed"] == "no"
 
 
+def test_run_still_populates_metadata_for_an_already_normalized_standalone_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for a real bug found via a real user report:
+    "already normalized" used to mean "skip populating metadata too,"
+    not just "skip re-renaming" -- a book with no `title` set gets routed
+    to the "AI enrichment failed" screen (BatchRunner._run_identification)
+    regardless of *why* it's missing, so a perfectly identifiable book
+    landed on the wrong screen, its already-known metadata thrown away
+    for free."""
+    normalized_name = "Doe, Jane — Standalone Novel.epub"
+    _make_epub(tmp_path / "input" / normalized_name)
+    fake = _FakeProvider(raise_on_call=True)  # must not be called
+    stage, _ = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": normalized_name}))
+
+    assert result.data["title"] == "Standalone Novel"
+    assert result.data["author_first"] == "Jane"
+    assert result.data["author_last"] == "Doe"
+    assert result.data["series"] is None
+    assert result.data["series_number"] is None
+
+
+def test_run_still_populates_metadata_for_an_already_normalized_series_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same regression, the series shape -- and the exact real-world
+    filename that surfaced this bug (an em dash in the title's own
+    Wheel-of-Time-style numbering, not just a plain standalone title)."""
+    normalized_name = "Jordan, Robert — The Wheel of Time #03 — The Dragon Reborn.epub"
+    _make_epub(tmp_path / "input" / normalized_name)
+    fake = _FakeProvider(raise_on_call=True)  # must not be called
+    stage, audit_log = _make_stage(tmp_path, monkeypatch, fake_provider=fake)
+
+    result = stage.run(BookState("b1", "pending", {"filename": normalized_name}))
+
+    assert result.data["title"] == "The Dragon Reborn"
+    assert result.data["author_first"] == "Robert"
+    assert result.data["author_last"] == "Jordan"
+    assert result.data["series"] == "The Wheel of Time"
+    assert result.data["series_number"] == 3
+
+    rows = audit_log.read_all()
+    assert rows[0]["title"] == "The Dragon Reborn"
+    assert rows[0]["author"] == "Robert Jordan"
+    assert rows[0]["series"] == "The Wheel of Time"
+    assert rows[0]["series_number"] == "3"
+
+
 # ---------------------------------------------------------------------------
 # RenameStage.run -- AI failure fallback
 # ---------------------------------------------------------------------------
