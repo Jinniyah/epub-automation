@@ -12,10 +12,12 @@ arbitrary filesystem paths directly).
 from __future__ import annotations
 
 import os
+import queue
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 # Injectable seams -- default to the real tkinter calls, replaced in
 # tests with fakes so no test ever creates a real Tk window (no display
@@ -59,6 +61,93 @@ def pick_folder(
     finally:
         root.destroy()
     return chosen or None
+
+
+# ---------------------------------------------------------------------------
+# Thread-safe wrapper (docs/BACKLOG.md Epic 10 Phase A -- real bug found via
+# live testing, not a design-time concern)
+# ---------------------------------------------------------------------------
+
+
+class _DialogJob(NamedTuple):
+    title: str
+    initial_dir: str
+    tk_factory: TkFactory
+    ask_directory: AskDirectory
+    response: "queue.Queue[str | None]"
+
+
+_dialog_jobs: "queue.Queue[_DialogJob]" = queue.Queue()
+_dialog_thread: threading.Thread | None = None
+_dialog_thread_lock = threading.Lock()
+
+
+def _dialog_worker() -> None:
+    while True:
+        job = _dialog_jobs.get()
+        try:
+            result = pick_folder(
+                title=job.title,
+                initial_dir=job.initial_dir,
+                tk_factory=job.tk_factory,
+                ask_directory=job.ask_directory,
+            )
+        except Exception:
+            result = None
+        job.response.put(result)
+
+
+def request_folder_pick(
+    title: str = "",
+    initial_dir: str = "",
+    *,
+    tk_factory: TkFactory = tk.Tk,
+    ask_directory: AskDirectory = filedialog.askdirectory,
+) -> str | None:
+    """The route-facing entry point `backend/app.py::pick_folder_route`
+    actually calls -- `pick_folder()` above stays the plain, directly
+    testable dialog logic; this wrapper is what makes it safe to call
+    from a Flask request handler at all.
+
+    **Real bug, found via live testing against a real running server,
+    not a theoretical concern:** every Flask route runs on one of
+    `waitress`'s worker-thread pool threads -- never the actual process
+    main thread `launcher.py`'s own `main()` blocks on inside
+    `waitress.serve()`. Calling `pick_folder()` directly from a route
+    handler intermittently hangs *forever*: reproduced live by calling
+    `POST /api/dialogs/folder` against a real server and watching the
+    request never return, while every other route kept responding
+    normally -- proof that exactly one of `waitress`'s *finite* worker
+    threads got permanently stuck, not that the whole server broke. A
+    few unlucky clicks could eventually exhaust all of them and take the
+    whole app down. Tcl/Tk's global interpreter state isn't safe to
+    touch from a *different* thread on every call (a fresh `waitress`
+    worker each time), but it's fine from one *consistent* thread reused
+    for the life of the process -- the standard fix for this exact
+    Flask+tkinter combination, and simpler than the alternative
+    (spawning a subprocess per dialog, which also doesn't survive being
+    frozen into a single PyInstaller `.exe` the way this app ships,
+    Epic 10 Phase B).
+
+    This function itself still runs on whichever `waitress` worker
+    thread handled the request -- it just hands the actual `pick_folder`
+    call off to the one dedicated background thread (started lazily, on
+    first use, and kept alive for the rest of the process) and blocks
+    waiting for the answer, which is exactly the behavior the route
+    already needs (the request is *supposed* to block until she answers
+    the dialog).
+    """
+    global _dialog_thread
+    with _dialog_thread_lock:
+        if _dialog_thread is None or not _dialog_thread.is_alive():
+            _dialog_thread = threading.Thread(target=_dialog_worker, daemon=True)
+            _dialog_thread.start()
+
+    response: "queue.Queue[str | None]" = queue.Queue()
+    _dialog_jobs.put(
+        _DialogJob(title, initial_dir, tk_factory, ask_directory, response)
+    )
+    return response.get()
 
 
 FolderOpener = Callable[[str], None]

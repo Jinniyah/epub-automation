@@ -469,7 +469,7 @@ matters, not just convenience).
 
 ### Phase A — unblocks real-person testing, do first ✅ Complete (2026-07-18)
 
-**Built and verified 2026-07-18** (462 backend tests / 96% coverage, 224
+**Built and verified 2026-07-18** (467 backend tests / 96% coverage, 224
 frontend tests / 32 files, both clean via real `pytest --cov` and
 `npm run build && npm run lint && npm test` passes; plus a real live
 smoke test, see below):
@@ -546,6 +546,37 @@ verified in this pass:** two real UI-polish items that never got built.
   `FixInfoFlow`). Title/Series have no particular expected shape, so no
   hint for those.
 
+**Real bug found and fixed post-verification, same day (2026-07-18) —
+real user report:** "Change my folders" stopped opening the native
+dialog at all, both for the books folder and the output folder. Not a
+regression from the Phase A work above — `backend/dialogs.py` and
+`FoldersScreen.tsx` are both untouched since Epic 7/8 — it was a
+pre-existing bug that had simply never been exercised against a real
+running server before, since every automated test mocks the dialog call
+out entirely, and Phase A's own single-process path is what made
+clicking through the real GUI this easy for the first time. **Root
+cause, confirmed by live reproduction:** `tkinter`'s `Tk()`/dialogs need
+one *consistent* thread, but every Flask route runs on a fresh thread
+from `waitress`'s worker-thread pool on each request — calling the real
+dialog directly from a route handler intermittently hangs forever
+(reproduced by calling the route against a real running server and
+watching it never return, while every other route kept responding
+normally — proof exactly one of `waitress`'s *finite* worker threads got
+permanently stuck, not that the whole server broke; enough unlucky
+clicks would eventually exhaust all of them and take the whole app
+down). **Fix:** `backend/dialogs.py::request_folder_pick()` — a single
+background thread, started once and reused for the process's whole
+lifetime, now owns every real `tkinter` call; a route submits a request
+to it via a queue and blocks for the answer, same behavior as before,
+just on the right thread. Full reasoning: `ADR-0006`'s own addendum.
+**Live-verified, not just unit-tested:** a real running server with the
+dialog's own deepest call faked (so it's driveable without a human
+clicking through an OS dialog) handled 8 sequential and 6 concurrent
+`POST /api/dialogs/folder` calls correctly and quickly (~200ms each),
+staying fully healthy throughout — the same real-server test that
+reproduced the original hang (empty response, full timeout, every time)
+before the fix.
+
 ### Phase B — full packaging, deliberately after initial real-person feedback
 
 **Why this ordering, not just "nice to have first":** once she's testing
@@ -605,6 +636,7 @@ packaging first and iterating against the finished artifact.
 | CPU vs. GPU benchmarking (`SECONDS_PER_CHAR`) | 10 Phase B (moved from 4, same reason) |
 | Flask doesn't serve the built frontend | 10 Phase A — done, built and verified 2026-07-18 (`_frontend_dist_dir()`/catch-all route in `backend/app.py`, live curl-verified against a real running server). |
 | No-console GUI launch for real-person testing | 10 Phase A — done, built and verified 2026-07-18 (`run_gui.vbs`, live-tested via `cscript`). |
+| "Change my folders" dialog not opening | 10 Phase A — **real user report, fixed and live-verified 2026-07-18**, same day. Pre-existing bug (unrelated to the Phase A code itself), surfaced by Phase A making real-server testing this easy for the first time: `tkinter` dialogs called from a Flask route handler hang intermittently, since every route runs on a fresh `waitress` worker thread. Fixed via a single persistent background thread owning all `tkinter` calls (`backend/dialogs.py::request_folder_pick()`). See `ADR-0006`'s addendum. |
 | Screen 1 auto-load-from-folder | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`GET`/`POST /api/books/from-folder`). |
 | Field Correction Popup format hints | 10 Phase A (moved from 8.5) — done, built and verified 2026-07-18 (`FieldCorrectionPopup`'s new `hint` prop). |
 | MAX_FILES-exceeded rejection message, Screen 1 UI | 8 — done |

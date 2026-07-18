@@ -305,7 +305,14 @@ def create_app(
     @app.post("/api/dialogs/folder")
     def pick_folder_route() -> Response:
         body = request.get_json(silent=True) or {}
-        path = dialogs.pick_folder(
+        # request_folder_pick(), not pick_folder() directly -- a route
+        # handler runs on one of waitress's worker-thread pool threads,
+        # never the process's real main thread, and calling the raw
+        # tkinter dialog logic from a *different* thread every time can
+        # hang forever (docs/BACKLOG.md Epic 10 Phase A, a real bug found
+        # via live testing). See dialogs.request_folder_pick()'s own
+        # docstring for the full explanation.
+        path = dialogs.request_folder_pick(
             title=body.get("title", ""), initial_dir=body.get("initial_dir", "")
         )
         return jsonify({"path": path})

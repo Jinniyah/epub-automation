@@ -222,8 +222,11 @@ def test_settings_update_ignores_schema_version_from_the_client(
 def test_pick_folder_route_returns_the_chosen_path(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The route calls request_folder_pick(), not pick_folder() directly
+    # (docs/BACKLOG.md Epic 10 Phase A) -- see that function's own
+    # docstring for why.
     monkeypatch.setattr(
-        dialogs_module, "pick_folder", lambda **kwargs: "C:\\Users\\Mom\\Books"
+        dialogs_module, "request_folder_pick", lambda **kwargs: "C:\\Users\\Mom\\Books"
     )
 
     resp = client.post("/api/dialogs/folder", json={"title": "Where are your books?"})
@@ -234,7 +237,7 @@ def test_pick_folder_route_returns_the_chosen_path(
 def test_pick_folder_route_returns_none_when_cancelled(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(dialogs_module, "pick_folder", lambda **kwargs: None)
+    monkeypatch.setattr(dialogs_module, "request_folder_pick", lambda **kwargs: None)
 
     resp = client.post("/api/dialogs/folder", json={})
 

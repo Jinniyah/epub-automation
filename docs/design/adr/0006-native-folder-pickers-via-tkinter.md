@@ -40,6 +40,46 @@ itself.
   multi-device, which is one more reason that remains explicitly out of
   scope without a new design pass.
 
+### Addendum (2026-07-18): tkinter needs one consistent thread, not "the Flask request thread"
+
+**Real bug found via live testing, not a design-time concern** (see
+`docs/BACKLOG.md` Epic 10 Phase A). This decision's original Context/
+Consequences didn't account for a real constraint: every Flask route
+runs on one of `waitress`'s worker-thread pool threads (a fresh one from
+a rotating pool of 4 on each request, `01-architecture.md` §Tech stack
+summary) — never the process's actual main thread. Tcl/Tk's global
+interpreter state isn't safe to touch from a *different* thread on every
+call, and calling `tkinter.filedialog.askdirectory()` directly from a
+route handler intermittently hangs *forever* — reproduced live by
+calling `POST /api/dialogs/folder` against a real running server and
+watching the request never return, while every other route kept
+responding normally (proof that exactly one of `waitress`'s *finite*
+worker threads got stuck, not that the whole server broke — though
+enough unlucky clicks would eventually exhaust all of them and take the
+whole app down).
+
+**Fix**: `backend/dialogs.py::request_folder_pick()` — a persistent,
+lazily-started background thread, created once and reused for the
+process's whole lifetime, that owns every real `tkinter` call from then
+on. A Flask route (or anything else) submits a request to it via a
+queue and blocks waiting for the answer, which is exactly the behavior
+already needed (the request is *supposed* to block until she answers
+the dialog) — the only change is *which* thread ends up doing the
+actual `tkinter` work. `pick_folder()` itself (the plain, directly
+testable dialog logic with injectable `tk_factory`/`ask_directory`
+seams) is unchanged; `request_folder_pick()` is a thin wrapper around
+it, and is what `backend/app.py::pick_folder_route()` actually calls.
+Live-verified (not just unit-tested) against a real running server with
+both sequential and concurrent load, fixed and stable — see
+`docs/BACKLOG.md` Epic 10 Phase A for the exact checks run.
+
+A subprocess-per-dialog-call was considered and rejected: it also would
+have sidestepped the threading issue, but doesn't survive being frozen
+into a single PyInstaller `.exe` the way this app ships (Epic 10 Phase
+B) — `sys.executable` inside a frozen build points at the exe itself,
+so re-invoking it as a subprocess would try to launch a second full
+instance of the app rather than a lightweight dialog helper.
+
 ## Alternatives Considered
 - **HTML `<input type="file" webkitdirectory>`** — rejected: browser
   file inputs can select files/folders the browser is shown, but can't
