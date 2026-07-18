@@ -129,9 +129,16 @@ real `npm run build && npm run lint && npm test` pass, this session.
   axe-core assertions already present in every screen's test file — just
   a stale checkbox, no code change.
 - **Left open, as human-only:** manual keyboard-only pass, real NVDA/
-  Narrator pass, unassisted dyslexic-reader test, screen-reader tester,
-  her-facing copy dry-run, per-series voice memory second look — none of
-  these can be completed by an AI agent.
+  Narrator pass, screen-reader tester, her-facing copy dry-run,
+  per-series voice memory second look — none of these can be completed
+  by an AI agent.
+- **The real dyslexic-reader test moved to `docs/BACKLOG.md`'s new Wish
+  List section, same day:** the tester previously lined up for it
+  (ADR-0015, `00-overview-and-goals.md`) is no longer available. Not
+  dropped, just blocked on finding a new tester — the app's dyslexic-
+  reader-facing design work itself (typography, plain language) is
+  already built and unaffected, only the real-person verification step
+  is on hold.
 - **Real concurrency bug found and fixed during this same pass, not a
   separate session:** the `_set_book()` refactor above raised how often
   `StateRepository.save()` gets called from multiple threads at once (the

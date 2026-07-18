@@ -7,36 +7,27 @@ can't run scripts from a terminal and has real physical constraints
 using a computer.
 
 > **Status: the shared pipeline core, both API surfaces, and the
-> accessible GUI's React frontend are all built and tested — one real
-> gap stands between that and a single-command working GUI.** Epics
-> 0–8 are complete: every pipeline stage, the CLI front door, the
-> Flask/JSON backend, and every screen in
+> accessible GUI's React frontend are all built and tested — one gap
+> remains before a single-command working GUI.** Epics 0–8 (plus 8.5,
+> 8.6, and Epic 9's code-buildable items) are complete: every pipeline
+> stage, the CLI, the Flask/JSON backend, and every screen in
 > [`03-gui-ux-design.md`](docs/requirements/03-gui-ux-design.md) are
-> real, working, tested code — 448 backend tests (~96% coverage) and
-> 216 frontend tests across 32 files (confirmed via a real `npm test`
-> run 2026-07-18, after Epic 9's step-progress indicator and its full
-> "Welcome back" resume fix), `black`/`ruff`/`mypy --strict` +
-> `eslint`/`tsc` all clean, all CI-enforced, and the full flow (Screen 1 → identification
-> → voice picker → generation → review) has been live-tested end to
-> end against the real backend and the real Kokoro TTS engine, not
-> just mocks. **The one thing not yet wired up: Flask doesn't yet serve
-> the built frontend** — dev mode (Vite's own dev server + a
-> separately-running backend, two processes) shows the real GUI today,
-> but `python launcher.py` alone still opens a browser to a `404`,
-> since nothing has told Flask how to serve `frontend/dist/` yet.
-> That's genuinely packaging-shaped work (Epic 10 — see
-> `docs/BACKLOG.md`), not a frontend gap. The CLI is fully usable right
-> now regardless — see [Getting started](#getting-started) below. Full
-> requirement docs live in [`docs/requirements/`](docs/requirements/);
-> [`docs/design/SYSTEM_DESIGN.md`](docs/design/SYSTEM_DESIGN.md) and
-> [`docs/design/adr/`](docs/design/adr/) (one Architecture Decision
-> Record per binding decision, several refined post-implementation as
-> real gaps were found — see that folder's `README.md`) capture *why*
-> it's built this way, [`docs/design/PATTERNS.md`](docs/design/PATTERNS.md)
-> the concrete implementation patterns it follows, and
-> [`docs/BACKLOG.md`](docs/BACKLOG.md) the epic-by-epic build order —
-> [`CODEBASE_INDEX.md`](CODEBASE_INDEX.md) is the up-to-date file map of
-> what's real versus still a placeholder.
+> real, tested code — 448 backend tests (~96% coverage), 216 frontend
+> tests across 32 files, `black`/`ruff`/`mypy --strict` + `eslint`/`tsc`
+> all clean and CI-enforced (confirmed 2026-07-18). The full flow
+> (Screen 1 → identification → voice picker → generation → review) has
+> been live-tested end to end against the real backend and the real
+> Kokoro TTS engine, not just mocks.
+>
+> **The one thing not yet wired up: Flask doesn't yet serve the built
+> frontend.** Dev mode (Vite's own dev server + a separately-running
+> backend, two processes) shows the real GUI today, but `python
+> launcher.py` alone still opens a browser to a `404`, since nothing has
+> told Flask how to serve `frontend/dist/` yet — genuinely
+> packaging-shaped work (Epic 10, see [`docs/BACKLOG.md`](docs/BACKLOG.md)),
+> not a frontend gap. The CLI is fully usable right now regardless — see
+> [Getting started](#getting-started). Full documentation index in
+> [Documentation](#documentation) below.
 
 ## What it does
 
@@ -165,11 +156,13 @@ semantic HTML and labeled form controls, color-contrast minimums, and
 dyslexia-friendly typography.
 
 **Said plainly: "aligned," not "certified."** There's no formal
-third-party audit here. A dyslexic tester is lined up to actually try
-the app; a screen-reader tester is being pursued but not yet confirmed.
-Until that testing happens, the screen-reader side of this is described
-as *designed and tested against WCAG 2.1 AA criteria* — not *validated
-by a blind user*. See
+third-party audit here, and neither real-person test is currently
+confirmed: the dyslexic reader originally lined up is no longer
+available (moved to [`docs/BACKLOG.md`](docs/BACKLOG.md)'s Wish List,
+not dropped), and a screen-reader tester is being pursued but not yet
+confirmed. Until that testing happens, both sides are described as
+*designed and tested against WCAG 2.1 AA criteria* — never *validated
+by* a dyslexic reader or a blind user. See
 [ADR-0015](docs/design/adr/0015-wcag-aa-alignment-broadened-accessibility-scope.md)
 for the full reasoning (including the pros/cons weighed before deciding
 to take this on), and

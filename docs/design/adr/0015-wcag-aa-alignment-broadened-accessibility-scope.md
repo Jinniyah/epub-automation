@@ -112,6 +112,22 @@ mixed).
   quietly upgrading the claim once enough time has passed that no one
   remembers it was never actually confirmed.
 
+### Addendum (2026-07-18): the dyslexic-reader tester also fell through
+
+The "against" reasoning above and this decision's own Context both
+originally treated the dyslexic-reader tester as a settled, available
+fact ("a dyslexic reader who can test directly"), not a lead — that
+tester is no longer available as of this date. This doesn't change the
+Decision itself: the design commitment (left-aligned/never-justified
+body text, generous line-height/letter-spacing, plain sans-serif —
+already built, `frontend/src/index.css`) stands regardless of who
+verifies it. What changes is verification status only, and the same
+fallback rule the bullet above already states for the screen-reader
+tester now applies symmetrically to the dyslexic-reader side too: keep
+the "designed and tested against WCAG 2.1 AA criteria, not yet validated
+by a dyslexic reader" framing indefinitely, never silently upgraded.
+Tracked as a Wish List item, not a dropped one — see `docs/BACKLOG.md`.
+
 ## Alternatives Considered
 - **Do nothing — keep the original FMS/RA-only scope** — rejected: this
   was a real, deliberated option (see the "against" reasoning above),

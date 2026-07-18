@@ -125,14 +125,17 @@ typography), and `09-testing-strategy.md` §Accessibility testing for how
 it actually gets checked — automated linting plus real manual testing
 where testers are available, not just internal review.
 
-**Testers identified for this pass:** a dyslexic reader is available to
-test directly. A screen-reader tester is being pursued through a contact
-who works professionally with people with disabilities — not yet
-confirmed as of this writing. Until a real screen-reader user has
-actually tried the app, the screen-reader side of this alignment should
-be described as *designed and tested against WCAG 2.1 AA criteria*, not
-as *validated by a blind user*, even internally — see
-`08-open-questions-and-assumptions.md` for this tracked as an open item.
+**Tester status (updated 2026-07-18):** neither side of this alignment
+currently has a confirmed tester. A dyslexic reader was originally lined
+up to test directly, but is no longer available — see `docs/BACKLOG.md`'s
+Wish List, where this now lives until a new tester is found. A
+screen-reader tester is being pursued through a contact who works
+professionally with people with disabilities — not yet confirmed as of
+this writing. Until a real dyslexic reader and a real screen-reader user
+have actually tried the app, both sides of this alignment should be
+described as *designed and tested against WCAG 2.1 AA criteria*, not as
+*validated by* either — see `08-open-questions-and-assumptions.md` for
+this tracked as an open item.
 
 ## Non-goals (explicitly out of scope for this version)
 

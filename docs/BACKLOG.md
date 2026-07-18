@@ -1,6 +1,6 @@
 # epub-automation — Implementation Backlog
 
-**Status:** Epics 0–8 complete (2026-07-06 to 2026-07-11). Epic 8.5 (real-user feedback pass) nearly done — auto-load-from-folder and Field Correction Popup format hints are the only items still open; everything else is done and build/test-verified via real `npm run build`/`lint`/`test` passes (2026-07-16/17). Epic 8.6 (visual polish, EMS ReadyKit-informed) complete and verified 2026-07-16, plus one post-verification bug found and fixed 2026-07-17. **Epics 0–8.6's narrative detail was compacted 2026-07-17** — decisions/gotchas kept, blow-by-blow session narration dropped; full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, unassisted dyslexic-reader test, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left.
+**Status:** Epics 0–8 complete (2026-07-06 to 2026-07-11). Epic 8.5 (real-user feedback pass) nearly done — auto-load-from-folder and Field Correction Popup format hints are the only items still open; everything else is done and build/test-verified via real `npm run build`/`lint`/`test` passes (2026-07-16/17). Epic 8.6 (visual polish, EMS ReadyKit-informed) complete and verified 2026-07-16, plus one post-verification bug found and fixed 2026-07-17. **Epics 0–8.6's narrative detail was compacted 2026-07-17** — decisions/gotchas kept, blow-by-blow session narration dropped; full history recoverable from git and from `CODEBASE_INDEX.md`'s own (separately-compacted) session notes. **Epic 9's code-buildable items done 2026-07-18** (full "Welcome back" resume, "clean up stuck in-progress state," the step-progress indicator, and confirming the axe-core/jsx-a11y CI item was already true) — 448 backend tests / 96% coverage, 216 frontend tests / 32 files, both clean via real `pytest --cov` and `npm run build && npm run lint && npm test` passes. **Epic 9's remaining items are all human-only** (manual keyboard-only pass, real NVDA/Narrator pass, screen-reader tester, her-facing copy dry-run, per-series voice memory second look) and cannot be completed by an AI agent — see that epic's own checklist for what's left. **The real dyslexic-reader test moved to the new Wish List section (bottom of this file) 2026-07-18** — the previously-lined-up tester is no longer available; not dropped, just blocked on finding a new one.
 
 This is the source of truth for *build order*. `docs/requirements/` is
 *what*, `docs/design/` is *why*, `docs/design/PATTERNS.md` is *how*,
@@ -442,7 +442,6 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
   screen's own test file. No code change needed, just this checkbox.
 - [ ] Manual keyboard-only pass, all screens
 - [ ] Real NVDA pass + Narrator sanity check
-- [ ] Real dyslexic-reader test (unassisted)
 - [x] **"Welcome back" Continue silently drops unresolved books —
   confirmed live 2026-07-16.** **Fixed via the "Full fix" option below,
   built and verified 2026-07-18:** `state.json` now persists each book's
@@ -555,6 +554,7 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 | Session-local same-series voice default | 8 — decided against (moved from 4): the backend only ever hands out one global default; a second, client-only "current default" risked silently disagreeing with the server for marginal convenience. |
 | Her-facing copy wording, unassisted dry-run test | 9 |
 | Screen-reader tester confirmation | 9 |
+| Dyslexic-reader tester | **Moved to Wish List 2026-07-18** — the tester previously lined up (`00-overview-and-goals.md` §The accessibility targets, ADR-0015) is no longer available. See Wish List below. |
 | Per-series voice memory, second look | 9 (same decision as above, revisit together if ever) |
 | "Welcome back" full state-file-driven resume | 9 — done, built and verified 2026-07-18 (`state.json` schema v2 book snapshots + `BatchRunner.restore_books()` at process startup). |
 | "More options": clean up stuck in-progress book state | 9 — done, built and verified 2026-07-18 (`POST /api/cleanup-in-progress`, `MoreOptionsScreen`'s "🧹 Nuke everything in progress"). |
@@ -570,3 +570,34 @@ and from `CODEBASE_INDEX.md`'s own Session notes if ever needed again.*
 | Working screen: chunk-progress readout + real progress bar | 8.5 — done, verified 2026-07-17 |
 | `.screen-actions` DOM-ordering bug, VoiceAssignmentScreen single-book mode | 8.6 — done, verified 2026-07-17 |
 | Icon system (real SVG icons vs. emoji) | Not scheduled — future nice-to-have, Epic 8.6 notes |
+
+---
+
+## Wish List (not scheduled — real, wanted, but no current path to doing it)
+
+Distinct from "Not scheduled" Open Items above (e.g. the icon system),
+which are cost/benefit judgment calls that could be picked up any time
+someone decides it's worth it. Everything here is blocked on something
+outside this project's control — most often a real person's
+availability — not on priority or engineering cost. Move an item back
+into an epic's active checklist the moment that blocker clears.
+
+- **Real dyslexic-reader test (unassisted).** Moved here 2026-07-18 —
+  the tester previously lined up (`docs/requirements/00-overview-and-
+  goals.md` §The accessibility targets, `ADR-0015`) is no longer
+  available. Was originally Epic 9's own checklist item, framed as
+  already scheduled since a real person had been identified; that's no
+  longer true, so leaving it checked-off-pending on Epic 9's active list
+  would have overstated how close it actually is. **Until a new tester
+  is found, the dyslexic-reader side of this app's WCAG 2.1 AA alignment
+  stays in exactly the same honest "designed and tested against WCAG 2.1
+  AA criteria, not yet validated by a dyslexic reader" framing ADR-0015
+  already uses for the screen-reader side** — never silently upgraded to
+  "validated," here or anywhere else this project is described (README,
+  the ADR itself, the requirements docs). The concrete design commitment
+  this test would verify (left-aligned/never-justified body text,
+  generous line-height/letter-spacing, plain sans-serif —
+  `frontend/src/index.css`, `03-gui-ux-design.md` §Perceivable) is
+  already built and unaffected; only the real-person verification step is
+  blocked. Revisit if a tester becomes available again — no expiration
+  date on this item.

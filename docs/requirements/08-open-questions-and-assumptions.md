@@ -74,24 +74,29 @@ the assumption or force a decision before build starts.
    checked against the actual source once available, not left as a
    holdover assumption from before the repos were public.
 
-5. **OPEN: screen-reader tester not yet confirmed** (added alongside the
-   WCAG 2.1 AA alignment broadening —
+5. **OPEN: neither the dyslexic-reader nor the screen-reader tester is
+   currently confirmed** (added alongside the WCAG 2.1 AA alignment
+   broadening —
    `../design/adr/0015-wcag-aa-alignment-broadened-accessibility-scope.md`,
-   `00-overview-and-goals.md` §The accessibility targets): a dyslexic
-   reader is already available and expected to actually test the app,
+   `00-overview-and-goals.md` §The accessibility targets). Originally a
+   dyslexic reader *was* available and expected to actually test the app,
    the same way the primary FMS/RA persona gets a real unassisted dry
-   run. A screen-reader tester is being pursued through a contact who
-   works professionally with people with disabilities, but is **not
-   confirmed as of this writing**. Until someone who actually uses a
-   screen reader has tried the app, any description of the screen-reader
-   side of this alignment must say "designed and tested against WCAG 2.1
-   AA criteria" — never "validated by a blind user," internally or in
-   any portfolio-facing writeup, since that would overstate what's
-   actually been confirmed. Revisit this item once a tester is secured
-   (update the claim to reflect real results, good or bad) or once
-   enough time has passed without one that the honest thing is to say
-   so plainly rather than let the claim quietly go stale. **Tracked as a
-   backlog item** — see `docs/BACKLOG.md`.
+   run — that tester is **no longer available as of 2026-07-18**, moved
+   to `docs/BACKLOG.md`'s Wish List rather than treated as a scheduled
+   epic item, since there's currently no path to actually doing it. A
+   screen-reader tester is being pursued through a contact who works
+   professionally with people with disabilities, but is **not confirmed
+   as of this writing** either. Until someone who actually is dyslexic or
+   actually uses a screen reader has tried the app, any description of
+   either side of this alignment must say "designed and tested against
+   WCAG 2.1 AA criteria" — never "validated by a dyslexic reader" or
+   "validated by a blind user," internally or in any portfolio-facing
+   writeup, since that would overstate what's actually been confirmed.
+   Revisit either item once a tester is secured (update the claim to
+   reflect real results, good or bad) or once enough time has passed
+   without one that the honest thing is to say so plainly rather than let
+   the claim quietly go stale. **Tracked as a backlog item** — see
+   `docs/BACKLOG.md`.
 
 ## Assumptions made during design that should be explicitly confirmed
 

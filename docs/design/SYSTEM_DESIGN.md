@@ -236,8 +236,11 @@ Two distinct targets — see ADR-0015.
   (`useAriaLiveThrottled()` hook — `docs/design/PATTERNS.md` §2).
 
 Full detail: `03-gui-ux-design.md` §Accessibility. Verification:
-`09-testing-strategy.md` §Accessibility testing (dyslexic tester
-identified, screen-reader tester pursued but unconfirmed).
+`09-testing-strategy.md` §Accessibility testing (neither the
+dyslexic-reader nor the screen-reader tester is currently confirmed —
+the dyslexic-reader tester originally lined up fell through 2026-07-18,
+see `docs/BACKLOG.md`'s Wish List; the screen-reader tester lead is still
+being pursued).
 
 ### 7.4 Cost & Resource Safety
 

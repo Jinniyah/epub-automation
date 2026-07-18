@@ -36,7 +36,7 @@ not a silent one made later:
   security-critical or silently excludes a whole category of user.
 - **Best-effort, and the most likely to actually slip:** the manual
   accessibility passes — the keyboard-only pass, the real NVDA/Narrator
-  pass, and the real dyslexic-reader and (if secured) screen-reader
+  pass, and (if secured) the real dyslexic-reader and screen-reader
   tests. Unlike the 80% coverage figure, nothing in CI enforces these;
   they depend entirely on discipline holding up over the life of the
   project, which is exactly the kind of thing that quietly slips under
@@ -209,17 +209,20 @@ undercut the "aligned, not certified" honesty that decision depends on.
   announced at all, whether progress announcements are throttled sanely
   rather than spammy, and whether the multi-book voice table's rows make
   sense read out loud.
-- **A real test with a dyslexic reader** — a genuine person is already
-  identified for this (`00-overview-and-goals.md` §The accessibility
-  targets); this should happen the same way the primary persona's
-  acceptance test does: a real, unassisted or lightly-observed run
-  through first-launch setup and a full single-book conversion, not just
-  a design review of static mockups/copy.
+- **A real test with a dyslexic reader**, once a tester is available
+  (the one originally lined up for this is no longer available as of
+  2026-07-18 — see `docs/BACKLOG.md`'s Wish List). Should happen the
+  same way the primary persona's acceptance test does: a real,
+  unassisted or lightly-observed run through first-launch setup and a
+  full single-book conversion, not just a design review of static
+  mockups/copy.
 - **A real test with a screen-reader user**, once a tester is confirmed
   (currently being pursued — see
-  `08-open-questions-and-assumptions.md`). Until this happens, any
-  claim about screen-reader usability should be phrased as "designed and
-  tested against WCAG 2.1 AA criteria," not "validated by a blind user."
+  `08-open-questions-and-assumptions.md`). Until either of these two
+  tests happens, any claim about dyslexic-reader or screen-reader
+  usability should be phrased as "designed and tested against WCAG 2.1
+  AA criteria," not "validated by a dyslexic reader" or "validated by a
+  blind user."
 
 ### What this does not include
 
