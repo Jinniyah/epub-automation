@@ -492,6 +492,10 @@ class BatchRunner:
                 if book.status == STATUS_ERROR:
                     continue
 
+                output_epub_path = self._copy_epub_to_output(
+                    Path(book.data["epub_path"])
+                )
+
                 needs_type = (
                     NeedsInputType.CONFIRM_METADATA
                     if book.data.get("title")
@@ -502,7 +506,11 @@ class BatchRunner:
                     replace(
                         book,
                         status=STATUS_NEEDS_INPUT,
-                        data={**book.data, "needs_input_type": needs_type},
+                        data={
+                            **book.data,
+                            "needs_input_type": needs_type,
+                            "output_epub_path": str(output_epub_path),
+                        },
                     ),
                 )
 
@@ -893,6 +901,60 @@ class BatchRunner:
 
     def _detect_collision(self, target: Path) -> str | None:
         return str(target) if target.exists() else None
+
+    def _copy_epub_to_output(self, epub_path: Path) -> Path:
+        """Copy the cleaned/renamed EPUB out to `output_folder` as soon as
+        the sanitize stage finishes for this book (01-architecture.md
+        §Folder mapping: "she has a usable renamed/cleaned ebook even if
+        the audio stage is still running or fails partway through the
+        batch") -- the artifact-#1 half of that section's "two things per
+        book, added incrementally" rule; `_copy_tree_to_output` below is
+        the artifact-#2 half, called once audio generation finishes.
+
+        Called from `_run_identification`'s loop body, which always
+        reaches this point (if at all) before that same book_id can ever
+        reach `_mark_complete`/`_cleanup_library_copies` (ADR-0017) --
+        confirming metadata, voice pick, and a full audio generation pass
+        all have to happen first. So this copy is always made while
+        `Library/02-Sanitized/<book>` is still guaranteed to exist,
+        never racing ADR-0017's later deletion of that same file.
+
+        **Collision handling -- deliberately auto-dedupe via
+        `_dedupe_path()`, not a `needs_input` pause:** unlike the
+        audiobook artifact (`_finish_generation` below), a same-name EPUB
+        collision here does *not* raise `NeedsInputType.OUTPUT_COLLISION`.
+        06-safety-error-handling.md §Concurrency & duplicate handling
+        calls for a real "replace or keep both" choice for both artifacts
+        independently, and `NeedsInputType.OUTPUT_COLLISION`'s `artifact`
+        field already anticipates an `"epub"` value (the frontend's
+        `CollisionDetail`/`CollisionPrompt` even already type- and
+        component-support it) -- but neither doc actually specs out
+        *when* that pause should happen relative to the identification
+        loop's own per-book `needs_input` pauses (`confirm_metadata`/
+        `ai_enrichment_failed`), and threading it in for real surfaced a
+        genuine gap: `backend/bridge.py::derive_batch_state()`'s
+        precedence rule buckets *any* other book still mid-identification
+        (pending/identifying/identified/confirm_metadata/
+        ai_enrichment_failed) as `BATCH_IDENTIFYING`, which would leave a
+        book paused on an EPUB collision invisible to the frontend (no
+        screen renders it) until every *other* book in the batch finishes
+        its own metadata confirmation -- not broken forever, just a real,
+        confusing delay in any multi-book batch. Fixing that properly
+        means changing `derive_batch_state`'s bucketing rule itself, a
+        materially bigger change than this bug fix warrants on its own.
+        Given the identification loop's own design already guarantees
+        "no pause here blocks the background thread" (this module's own
+        docstring), silently deduping (same helper `resolve_collision()`'s
+        `"keep_both"` branch already uses for the audiobook artifact) is
+        the safe default: she still gets both files, under distinct
+        names, never a silent overwrite -- just not yet the distinct
+        "replace or keep both" prompt the docs describe. Flagged in
+        docs/BACKLOG.md for a proper follow-up.
+        """
+        self._output_folder.mkdir(parents=True, exist_ok=True)
+        dest = _dedupe_path(self._output_folder / epub_path.name)
+        shutil.copy2(epub_path, dest)
+        return dest
 
     def _copy_tree_to_output(self, folder: Path) -> Path:
         dest = self._output_folder / folder.name

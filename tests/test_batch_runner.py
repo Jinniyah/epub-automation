@@ -390,6 +390,115 @@ def test_sanitize_toggle_off_passes_the_file_through_unchanged(tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------
+# EPUB output copy (01-architecture.md §Folder mapping: "output_folder
+# receives two things per book" -- the EPUB half, copied out as soon as
+# the sanitize stage finishes, independently of audio generation)
+# ---------------------------------------------------------------------------
+
+
+def test_epub_copied_to_output_folder_on_sanitize_completion(tmp_path: Path) -> None:
+    runner = _make_runner(tmp_path)  # default settings: sanitize stage enabled
+    book_id = _add_book(runner, tmp_path, title="Fated", author="Benedict Jacka")
+
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+
+    data = _data_of(runner, book_id)
+    assert data["filename"].endswith("_cln.epub")
+    library_copy = tmp_path / "Library" / "02-Sanitized" / data["filename"]
+    output_copy = Path(data["output_epub_path"])
+    assert output_copy == tmp_path / "Output" / data["filename"]
+    assert output_copy.exists()
+    assert output_copy.read_bytes() == library_copy.read_bytes()
+
+
+def test_epub_copy_still_happens_when_sanitize_stage_is_toggled_off(
+    tmp_path: Path,
+) -> None:
+    """The EPUB half of the "two things per book" copy must fire from the
+    identification loop unconditionally, not only on the branch where
+    SanitizeStage actually ran -- `_pass_through` is the other of the two
+    codepaths that can finish the "sanitize" step (settings' own
+    `clean_language` toggle off)."""
+    runner = _make_runner(
+        tmp_path, settings={"ai_provider": "none", "clean_language": False}
+    )
+    book_id = _add_book(runner, tmp_path)
+
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+
+    data = _data_of(runner, book_id)
+    output_copy = Path(data["output_epub_path"])
+    assert output_copy.exists()
+    assert output_copy == tmp_path / "Output" / data["filename"]
+
+
+def test_epub_output_collision_is_auto_deduped_not_paused(tmp_path: Path) -> None:
+    """Unlike the audiobook artifact, an EPUB output collision does not
+    raise a `needs_input`/`output_collision` pause -- see
+    `BatchRunner._copy_epub_to_output`'s own docstring for why. The
+    identification loop must keep moving without pausing on it."""
+    runner = _make_runner(tmp_path)
+    predicted_filename = (
+        build_filename(
+            {
+                "title": "Fated",
+                "author_first": "Benedict",
+                "author_last": "Jacka",
+                "series": None,
+                "series_number": None,
+            }
+        ).removesuffix(".epub")
+        + "_cln.epub"
+    )
+    colliding = tmp_path / "Output" / predicted_filename
+    colliding.parent.mkdir(parents=True, exist_ok=True)
+    colliding.write_text("pre-existing content")
+
+    book_id = _add_book(runner, tmp_path, title="Fated", author="Benedict Jacka")
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+
+    data = _data_of(runner, book_id)
+    # Identification proceeded straight to its normal metadata pause --
+    # never a needs_input/output_collision pause for this artifact.
+    assert data["needs_input_type"] in (
+        NeedsInputType.CONFIRM_METADATA,
+        NeedsInputType.AI_ENRICHMENT_FAILED,
+    )
+    output_copy = Path(data["output_epub_path"])
+    assert output_copy != colliding
+    assert output_copy.exists()
+    assert colliding.read_text() == "pre-existing content"  # original untouched
+
+
+def test_epub_copy_survives_audio_generation_failing_later(tmp_path: Path) -> None:
+    """The EPUB copy is made during identification, well before audio
+    generation even starts -- a later audio failure must never retroactively
+    take it away."""
+
+    class _FailingTTSEngine(_FakeTTSEngine):
+        def generate(self, text: str, voice: str) -> bytes:
+            raise RuntimeError("simulated TTS failure")
+
+    runner = _make_runner(tmp_path, tts_engine=_FailingTTSEngine())
+    book_id = _add_book(runner, tmp_path, title="Fated", author="Benedict Jacka")
+    runner.start()
+    _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
+
+    data = _data_of(runner, book_id)
+    output_copy = Path(data["output_epub_path"])
+    assert output_copy.exists()
+
+    runner.confirm_metadata(book_id)
+    runner.assign_voice(book_id, "af_heart")  # single-book -> auto-generates
+
+    _wait_until(lambda: _status_of(runner, book_id) == "error")
+    assert output_copy.exists()  # untouched by the later audio failure
+
+
+# ---------------------------------------------------------------------------
 # Voice assignment
 # ---------------------------------------------------------------------------
 
@@ -560,6 +669,11 @@ def test_review_yes_marks_complete_and_cleans_up_library_copies(tmp_path: Path) 
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_NEEDS_INPUT)
     data = _data_of(runner, book_id)
     incoming_copy = tmp_path / "Library" / "00-Incoming" / data["_trace"]["incoming"]
+    library_sanitized_copy = (
+        tmp_path / "Library" / "02-Sanitized" / data["_trace"]["sanitized"]
+    )
+    output_epub_copy = Path(data["output_epub_path"])
+    assert output_epub_copy.exists()
     runner.confirm_metadata(book_id)
     runner.assign_voice(book_id, "af_heart")  # single-book -> auto-generates
 
@@ -576,8 +690,10 @@ def test_review_yes_marks_complete_and_cleans_up_library_copies(tmp_path: Path) 
 
     assert updated.status == STATUS_COMPLETE
     assert not incoming_copy.exists()
+    assert not library_sanitized_copy.exists()  # ADR-0017: internal copy gone
     assert not library_audio_folder.exists()
-    assert output_audio_folder.exists()  # her copy survives cleanup
+    assert output_audio_folder.exists()  # her audiobook copy survives cleanup
+    assert output_epub_copy.exists()  # her EPUB copy survives cleanup too
 
 
 def test_review_no_then_retag_applies_overrides_to_the_output_copy_only(

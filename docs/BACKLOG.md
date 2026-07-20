@@ -519,6 +519,44 @@ real-user report) is recoverable from git history and from
 - [ ] **Open:** her-facing copy read-through — real unassisted dry run
 - [ ] **Open:** per-series voice memory, second look after real
   multi-book use
+- [x] **Sanitized EPUB never actually reached `output_folder`.** **Found
+  and fixed 2026-07-20**, real user report (she checked her own output
+  folder and found no `.epub` file). `01-architecture.md` §Folder
+  mapping has always specified two artifacts copied to `output_folder`
+  incrementally — the cleaned/renamed EPUB as soon as sanitize finishes,
+  the finished audiobook as soon as audio finishes — but only the
+  audiobook half was ever built. `_run_identification()` never copied
+  the sanitized EPUB out of `Library/02-Sanitized/`, and ADR-0017's
+  cleanup then deleted that internal copy once the book reached
+  `complete`, so the cleaned EPUB was generated, used as TTS input, and
+  silently discarded. **Fix:** `BatchRunner._copy_epub_to_output()`,
+  called from `_run_identification()`'s loop right after sanitize/
+  pass-through completes, provably always before that book could ever
+  reach ADR-0017 cleanup (confirming metadata, voice pick, and a full
+  audio pass all have to happen first — traced explicitly, not assumed).
+  478 backend tests / 96.53% coverage, clean `black`/`ruff`/`mypy
+  --strict`. See `CODEBASE_INDEX.md`'s Session notes for the full
+  writeup.
+  - **Collision-handling decision, needs a human follow-up later:**
+    unlike the audiobook artifact, an EPUB output collision is
+    auto-deduped (`_dedupe_path()`, the same helper `resolve_collision()`
+    already uses for `"keep_both"`) rather than raising a real "replace
+    or keep both" `needs_input` pause. `06-safety-error-handling.md`
+    calls for a real per-artifact prompt, and the frontend's
+    `CollisionDetail`/`CollisionPrompt` already type- and
+    component-support an `"epub"` artifact value — but wiring that in
+    for real surfaced a genuine, separate gap: `backend/bridge.py::
+    derive_batch_state()`'s precedence rule buckets *any* other book
+    still mid-identification as `BATCH_IDENTIFYING`, which would leave a
+    book paused on an EPUB collision invisible to the frontend until
+    every other book in the batch finishes its own metadata
+    confirmation — a real, confusing delay in a multi-book batch, not a
+    clean drop-in of the existing audiobook-collision pattern. A proper
+    fix needs `derive_batch_state()`'s bucketing rule itself to change
+    (plus new `tests/test_bridge.py` coverage), which is real,
+    separately-scoped work, not a mechanical extension of this fix.
+    Revisit when a full "replace vs. keep both" EPUB collision prompt is
+    actually wanted.
 
 ---
 
@@ -800,6 +838,7 @@ packaging first and iterating against the finished artifact.
 | "Welcome back" full state-file-driven resume | 9 — done, built and verified 2026-07-18 (`state.json` schema v2 book snapshots + `BatchRunner.restore_books()` at process startup). |
 | "More options": clean up stuck in-progress book state | 9 — done, built and verified 2026-07-18 (`POST /api/cleanup-in-progress`, `MoreOptionsScreen`'s "🧹 Nuke everything in progress"). |
 | Persistent step/progress indicator across the main batch flow | 9 — done, built and verified 2026-07-18 (`StepProgress` shared component). |
+| Sanitized EPUB never reached `output_folder` | 9 — done, fixed 2026-07-20 (`BatchRunner._copy_epub_to_output()`). EPUB collision handling deliberately left as auto-dedupe, not a full `needs_input` prompt — see that checklist item's own note for why and what a proper follow-up needs. |
 | Vite dev-server Origin/CSRF proxy config | 7 — done |
 | Screen 1 settings entry points → "More options" hub | 8.5 — done |
 | Header (brand title + Home button) redesign | 8.5 — done |
