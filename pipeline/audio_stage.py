@@ -8,9 +8,14 @@ docs/requirements/04-tts-engine.md.
 
 Adapted from the original epub-to-audio, for concrete, nameable reasons
 (ADR-0014):
-  - Chapter extraction / chunking (`extract_chapters`, `chunk_text`) and
-    the per-chunk "skip if MP3 already exists and is above a minimum size"
-    resume logic are ported verbatim (pipeline/epub_utils.py).
+  - Chapter extraction / chunking (`extract_chapters`, `chunk_text`) is
+    ported verbatim (pipeline/epub_utils.py). The "skip if MP3 already
+    exists and is above a minimum size" resume check is also still ported
+    verbatim, but ADR-0020 (2026-07-20) moved its granularity from one
+    original ~4,000-char chunk to one merged "part" (several chunks'
+    audio concatenated into a single file, `group_chunks_into_parts()`)
+    -- a deliberate, bounded resume-loss tradeoff, see that ADR and
+    `run()`'s own comments for the full reasoning.
   - ID3 tagging (`_apply_tags`) is ported from `apply_tags()`, adapted to
     this project's metadata shape (`author_first`/`author_last`, produced
     by RenameStage, rather than the original's single `author` string).
@@ -44,14 +49,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TRCK, ID3NoHeaderError
 
 from pipeline.audit_logger import AuditLogRepository
 from pipeline.epub_reader import extract_cover_bytes
-from pipeline.epub_utils import MAX_CHUNK_CHARS, chunk_text, extract_chapters
+from pipeline.epub_utils import (
+    MAX_CHUNK_CHARS,
+    chunk_text,
+    extract_chapters,
+    group_chunks_into_parts,
+)
 from pipeline.rename_stage import build_filename
 from pipeline.stage import BookState
-from pipeline.tts_engine import DEFAULT_VOICE, VOICES, TTSEngineLike
+from pipeline.tts_engine import (
+    DEFAULT_VOICE,
+    MAX_PART_CHARS,
+    VOICES,
+    TTSEngineLike,
+    encode_mp3,
+)
 
 # Any existing MP3 above this size is treated as already-generated and
 # skipped -- ported verbatim from epub-to-audio's resume check (`mp3_path
@@ -87,6 +104,7 @@ class AudioStage:
         tts_engine: TTSEngineLike,
         default_voice: str = DEFAULT_VOICE,
         max_chunk_chars: int = MAX_CHUNK_CHARS,
+        max_part_chars: int = MAX_PART_CHARS,
         max_chunk_retries: int = DEFAULT_MAX_CHUNK_RETRIES,
         retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
         on_progress: Callable[[str, int, int], None] | None = None,
@@ -98,6 +116,7 @@ class AudioStage:
         self._tts_engine = tts_engine
         self._default_voice = default_voice
         self._max_chunk_chars = max_chunk_chars
+        self._max_part_chars = max_part_chars
         self._max_chunk_retries = max_chunk_retries
         self._retry_backoff_seconds = retry_backoff_seconds
         # Observer pattern (docs/design/PATTERNS.md §1): this stage never
@@ -184,93 +203,123 @@ class AudioStage:
             (chapter, chunk_text(chapter["text"], self._max_chunk_chars))
             for chapter in chapters
         ]
-        total_tracks = sum(len(chunks) for _, chunks in chunked_chapters)
+        total_chunks = sum(len(chunks) for _, chunks in chunked_chapters)
 
-        track_num = 0
-        for ch_idx, (chapter, chunks) in enumerate(chunked_chapters, start=1):
-            for ck_idx, chunk in enumerate(chunks, start=1):
-                track_num += 1
+        # Deterministic pre-partitioning (ADR-0020) -- computed once, up
+        # front, purely from already-known text, so it's identical on
+        # every resumed run. Grouping happens per chapter; a part never
+        # spans a chapter boundary.
+        chapter_parts = [
+            (chapter, group_chunks_into_parts(chunks, self._max_part_chars))
+            for chapter, chunks in chunked_chapters
+        ]
+        total_parts = sum(len(parts) for _, parts in chapter_parts)
 
-                if self._should_stop is not None:
-                    stop_reason = self._should_stop(book.book_id)
-                    if stop_reason is not None:
-                        # Stop before starting the next chunk -- already-
-                        # written chunks are untouched, which is exactly
-                        # what makes the existing per-chunk resume check
-                        # above safe to rely on for Pause/Cancel-keep-
-                        # partial recovery (06-safety-error-handling.md
-                        # §Cancel design).
-                        return BookState(
-                            book.book_id,
-                            stop_reason,
-                            {
-                                **book.data,
-                                "audio_folder": str(book_dir),
-                                "voice": voice,
-                                "chunks_done": track_num - 1,
-                                "chunks_total": total_tracks,
-                            },
-                        )
+        track_num = 0  # chunks whose PCM has completed *this run* -- drives
+        # on_progress(), fired progressively per chunk (ADR-0020: batching
+        # this at part-flush would freeze the Working screen's progress
+        # bar for up to ~15 minutes at a stretch).
+        flushed_chunk_count = 0  # chunks belonging only to fully written+
+        # tagged parts -- the resume-safe number reported as chunks_done
+        # whenever this stage stops, never track_num - 1: PCM for an
+        # in-progress, not-yet-flushed part is discarded on stop, not
+        # partially written (ADR-0020's deliberate, bounded resume-loss
+        # tradeoff -- "up to one part," never a whole chapter/book).
+        part_num = 0  # book-wide part counter -- drives ID3 track_number
+
+        for ch_idx, (chapter, parts) in enumerate(chapter_parts, start=1):
+            for part_idx, part_chunks in enumerate(parts, start=1):
+                part_num += 1
 
                 mp3_name = (
-                    f"{base_name} - {ch_idx:03}_{ck_idx}.mp3"
-                    if len(chunks) > 1
+                    f"{base_name} - {ch_idx:03}_{part_idx:03}.mp3"
+                    if len(parts) > 1
                     else f"{base_name} - {ch_idx:03}.mp3"
                 )
                 mp3_path = book_dir / mp3_name
 
                 if mp3_path.exists() and mp3_path.stat().st_size > MIN_VALID_MP3_BYTES:
-                    continue  # resume: already generated in a prior run
+                    # Resume: the whole part already exists -- never call
+                    # the TTS engine for any of its chunks.
+                    track_num += len(part_chunks)
+                    flushed_chunk_count += len(part_chunks)
+                    continue
 
-                mp3_bytes, gen_error = self._generate_with_retry(chunk, voice)
-                if mp3_bytes is None:
-                    self._audit_log.append(
-                        self._audit_row(
-                            filename,
-                            base_name,
-                            meta,
-                            voice,
-                            skipped_reason="generation_failed",
+                pcm_segments: list[np.ndarray] = []
+                for chunk in part_chunks:
+                    track_num += 1
+
+                    if self._should_stop is not None:
+                        stop_reason = self._should_stop(book.book_id)
+                        if stop_reason is not None:
+                            # Stop before starting the next chunk -- same
+                            # granularity as before. Whatever PCM this
+                            # in-progress part already generated is
+                            # discarded, never written (ADR-0020).
+                            return BookState(
+                                book.book_id,
+                                stop_reason,
+                                {
+                                    **book.data,
+                                    "audio_folder": str(book_dir),
+                                    "voice": voice,
+                                    "chunks_done": flushed_chunk_count,
+                                    "chunks_total": total_chunks,
+                                },
+                            )
+
+                    pcm, gen_error = self._generate_pcm_with_retry(chunk, voice)
+                    if pcm is None:
+                        self._audit_log.append(
+                            self._audit_row(
+                                filename,
+                                base_name,
+                                meta,
+                                voice,
+                                skipped_reason="generation_failed",
+                            )
                         )
-                    )
-                    error_text = (
-                        f"Audio generation failed at chapter {ch_idx}, "
-                        f"chunk {ck_idx} (track {track_num}/{total_tracks})"
-                    )
-                    if gen_error:
-                        # The underlying Kokoro/pipeline exception -- never
-                        # surfaced in the polling contract's her-facing
-                        # `error.summary` (01-architecture.md), but this is
-                        # exactly the channel `current_error_detail()`/
-                        # `build_support_bundle()` already read as the
-                        # "technical detail" (see that function's own
-                        # docstring), which used to be this same generic
-                        # sentence with nothing underneath it -- a real gap
-                        # found 2026-07-18 diagnosing a real failed run with
-                        # nothing in the support bundle to go on.
-                        error_text += f" -- {gen_error}"
-                    return BookState(
-                        book.book_id,
-                        "error",
-                        {
-                            **book.data,
-                            "error": error_text,
-                            "audio_folder": str(book_dir),
-                        },
-                    )
+                        error_text = (
+                            f"Audio generation failed at chapter {ch_idx}, "
+                            f"track {track_num}/{total_chunks}"
+                        )
+                        if gen_error:
+                            # The underlying Kokoro/pipeline exception -- never
+                            # surfaced in the polling contract's her-facing
+                            # `error.summary` (01-architecture.md), but this is
+                            # exactly the channel `current_error_detail()`/
+                            # `build_support_bundle()` already read as the
+                            # "technical detail" (see that function's own
+                            # docstring), which used to be this same generic
+                            # sentence with nothing underneath it -- a real gap
+                            # found 2026-07-18 diagnosing a real failed run with
+                            # nothing in the support bundle to go on.
+                            error_text += f" -- {gen_error}"
+                        return BookState(
+                            book.book_id,
+                            "error",
+                            {
+                                **book.data,
+                                "error": error_text,
+                                "audio_folder": str(book_dir),
+                            },
+                        )
+                    pcm_segments.append(pcm)
 
-                mp3_path.write_bytes(mp3_bytes)
+                    if self._on_progress is not None:
+                        self._on_progress(book.book_id, track_num, total_chunks)
+
+                full_part_audio = np.concatenate(pcm_segments)
+                mp3_path.write_bytes(encode_mp3(full_part_audio))
                 _apply_tags(
                     mp3_path,
                     meta,
-                    track_number=track_num,
-                    total_tracks=total_tracks,
+                    track_number=part_num,
+                    total_tracks=total_parts,
                     chapter_title=chapter["title"],
                     cover_bytes=cover_bytes,
                 )
-
-                if self._on_progress is not None:
-                    self._on_progress(book.book_id, track_num, total_tracks)
+                flushed_chunk_count += len(part_chunks)
 
         self._audit_log.append(self._audit_row(filename, base_name, meta, voice))
         return BookState(
@@ -280,20 +329,22 @@ class AudioStage:
                 **book.data,
                 "audio_folder": str(book_dir),
                 "voice": voice,
-                "chunks_total": total_tracks,
+                "chunks_total": total_chunks,
             },
         )
 
-    def _generate_with_retry(self, text: str, voice: str) -> tuple[bytes | None, str]:
-        """Returns `(mp3_bytes, "")` on success, or `(None, detail)` once
-        every retry is exhausted, *detail* being the last attempt's
-        exception as plain text (`"TypeName: message"`) -- kept only for
-        `run()`'s error-reporting path, never logged/retried differently
-        by attempt number, since every attempt is otherwise identical."""
+    def _generate_pcm_with_retry(
+        self, text: str, voice: str
+    ) -> tuple[np.ndarray | None, str]:
+        """Returns `(pcm, "")` on success, or `(None, detail)` once every
+        retry is exhausted, *detail* being the last attempt's exception as
+        plain text (`"TypeName: message"`) -- kept only for `run()`'s
+        error-reporting path, never logged/retried differently by attempt
+        number, since every attempt is otherwise identical."""
         last_error = ""
         for attempt in range(1, self._max_chunk_retries + 1):
             try:
-                return self._tts_engine.generate(text, voice), ""
+                return self._tts_engine.generate_pcm(text, voice), ""
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if attempt == self._max_chunk_retries:

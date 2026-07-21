@@ -61,15 +61,25 @@ class TTSEngine:
     def __init__(self, lang_code: str = "a"):
         self._pipeline = KPipeline(lang_code=lang_code)
 
-    def generate(self, text: str, voice: str) -> bytes:
-        """Return encoded MP3 bytes for the given text and voice key."""
+    def generate_pcm(self, text: str, voice: str) -> np.ndarray:
+        """Return raw float32 PCM for the given text and voice key,
+        un-encoded (ADR-0020) -- the audio stage accumulates several
+        chunks' PCM into one merged ~15-minute "part" before a single
+        encode_mp3() call, rather than encoding per chunk."""
         segments = [audio for _, _, audio in self._pipeline(text, voice=voice)]
-        return encode_mp3(concatenate(segments))
+        return concatenate(segments)
+
+    def generate(self, text: str, voice: str) -> bytes:
+        """Return encoded MP3 bytes for the given text and voice key --
+        a thin wrapper, kept for single-shot callers (voice samples)."""
+        return encode_mp3(self.generate_pcm(text, voice))
 ```
 
-Normal Python exceptions on failure — the existing per-chunk retry logic
-in the audio stage can catch and retry these the same way it retried
-Selenium failures, just without any "reload the page" step.
+Normal Python exceptions on failure — the existing retry logic in the
+audio stage can catch and retry these the same way it retried Selenium
+failures, just without any "reload the page" step. Retries operate on
+`generate_pcm()`, per chunk, same as before ADR-0020 — only the
+encode-and-write step moved from per-chunk to per-part.
 
 ## MP3 encoding parameters (decided during review)
 

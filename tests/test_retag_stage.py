@@ -106,6 +106,19 @@ def test_chapter_title_from_stem_with_part() -> None:
     assert chapter_title_from_stem(stem) == "Chapter 13, Part 10"
 
 
+def test_chapter_title_from_stem_still_works_when_suffix_represents_a_merged_part() -> (
+    None
+):
+    """ADR-0020: the second number in a "-NNN_MMM" suffix now usually
+    means a merged ~15-minute audio part (several original text chunks),
+    not one raw ~4,000-char chunk -- this function needed zero code
+    change for that, since it's already generic to "whatever the second
+    number means." Same assertion as the test above, kept as its own
+    test for documentation/regression value."""
+    stem = "Jacka, Benedict — Alex Verus #01 — Fated - 013_10"
+    assert chapter_title_from_stem(stem) == "Chapter 13, Part 10"
+
+
 def test_chapter_title_from_stem_without_part() -> None:
     stem = "Jacka, Benedict — Alex Verus #01 — Fated - 003"
     assert chapter_title_from_stem(stem) == "Chapter 3"

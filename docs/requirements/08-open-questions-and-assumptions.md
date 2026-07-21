@@ -277,17 +277,41 @@ the user to decide.
   Microsoft's Defender sample-submission portal, but this changes
   distribution mechanics the author experiences directly, so it's the
   user's call, not something to decide on their behalf.
-- **OPEN: per-chunk audio files vs. a merged per-chapter file.** The
-  audio stage (inherited from `epub-to-audio`) produces one MP3 per
-  text chunk, which can mean dozens of small files per chapter and
-  hundreds per book. This preserves fine-grained resume behavior, but
-  it also determines what she actually sees in whatever app or device
-  she plays these back on — a basic media player showing "Track 47 of
-  340" is a materially worse listening experience than a normal
-  audiobook with one file per chapter, even if the pipeline worked
-  perfectly. Resolving this needs to know what she'll actually listen
-  on (a phone's default player? a dedicated audiobook app? something
-  that groups by folder?) before deciding whether a final
-  merge-chunks-into-one-file-per-chapter pass belongs in v1 or is an
-  accepted tradeoff. **Tracked as an open backlog item pending that
-  answer** — see `docs/BACKLOG.md` Epic 4.
+- **OPEN: does correcting metadata via "No, let me fix it" need to
+  re-deliver the EPUB too, not just rename the audiobook?** Surfaced
+  2026-07-20 while fixing the sanitized-EPUB-never-reached-`output_folder`
+  bug (see `docs/BACKLOG.md` Epic 9). `RetagStage`
+  (`pipeline/retag_stage.py`) only ever operates on the audiobook's
+  `.mp3` files and containing folder — it has no mechanism to touch any
+  `.epub` file, and `BatchRunner.retag_book()` never references the
+  EPUB's `output_folder` copy at all. Before today's fix this didn't
+  matter, since the EPUB never reached `output_folder` in the first
+  place. Now that it does (copied early, at sanitize time, before she's
+  had a chance to review/correct anything), a post-Review correction
+  leaves her with a correctly-renamed audiobook folder and a
+  stale-named/stale-metadata EPUB for the same book — a real, new
+  inconsistency this fix introduces rather than one it fixes. Needs a
+  decision on the right fix shape (re-copy the EPUB under the corrected
+  name at retag time? rename it in place, mirroring what `RetagStage`
+  already does for the audiobook folder? something else?) before
+  building it. **Tracked as a backlog item, not yet decided** — see
+  `docs/BACKLOG.md` Epic 9.
+- **RESOLVED 2026-07-20: per-chunk audio files vs. a merged per-chapter
+  file.** The audio stage (inherited from `epub-to-audio`) produced one
+  MP3 per text chunk, which could mean dozens of small files per
+  chapter and hundreds per book — this stopped being hypothetical once
+  a real user reported the resulting listening experience directly
+  ("cuts off and starts in strange locations, like the middle of a
+  sentence") after actually listening to a real generated audiobook.
+  Investigating it found the audible gap between chunk files really was
+  a genuine, separate problem from an already-fixed sort-order bug in
+  the same report. Resolution, decided directly with the user against
+  real per-chapter size numbers from her own library (she listens on
+  phones/tablets): merge chunks into ~15-minute/~15MB "parts" instead of
+  either extreme (one file per ~4,000-char chunk, or one file per
+  chapter — the latter would have meant a single 205-minute/188MB file
+  for one real chapter in her library). See
+  `../design/adr/0020-merge-audio-chunks-into-per-chapter-parts.md` for
+  the full decision, including the bounded resume-loss tradeoff this
+  introduces. **Tracked as a backlog item, done** — see
+  `docs/BACKLOG.md` Epic 9.

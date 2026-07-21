@@ -19,10 +19,13 @@ from pipeline.tts_engine import (
     BYTES_PER_SECOND_OF_AUDIO,
     DEFAULT_VOICE,
     KOKORO_SAMPLE_RATE,
+    MAX_PART_CHARS,
     SECONDS_PER_CHAR,
+    TARGET_PART_MINUTES,
     VOICE_SAMPLE_TEXT,
     VOICES,
     TTSEngine,
+    encode_mp3,
     ensure_voice_samples,
     estimate_audio_bytes,
     installed_kokoro_version,
@@ -136,6 +139,53 @@ def test_generate_voice_sample_uses_standard_sentence() -> None:
     engine.generate_voice_sample(DEFAULT_VOICE)
 
     assert calls == [VOICE_SAMPLE_TEXT]
+
+
+# ---------------------------------------------------------------------------
+# TTSEngine.generate_pcm / encode_mp3 (ADR-0020)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_pcm_returns_float32_array_at_kokoro_sample_rate() -> None:
+    engine = _make_engine()
+    pcm = engine.generate_pcm("Hello there.", DEFAULT_VOICE)
+
+    assert pcm.dtype == np.float32
+    assert pcm.ndim == 1
+    assert len(pcm) == int(KOKORO_SAMPLE_RATE * 0.1)  # _FakePipeline's own duration
+
+
+def test_generate_pcm_rejects_unknown_voice() -> None:
+    engine = _make_engine()
+    with pytest.raises(ValueError, match="Unknown voice"):
+        engine.generate_pcm("Hello there.", "zz_nobody")
+
+
+def test_generate_pcm_propagates_pipeline_failure() -> None:
+    engine = _make_engine(_RaisingPipeline)
+    with pytest.raises(RuntimeError, match="simulated kokoro failure"):
+        engine.generate_pcm("Hello.", DEFAULT_VOICE)
+
+
+def test_generate_is_a_thin_wrapper_around_generate_pcm_and_encode_mp3() -> None:
+    """generate() must be provably identical to calling generate_pcm()
+    and encode_mp3() manually -- not just "still passes its own tests"
+    (ADR-0020: every other caller of generate(), e.g. voice samples,
+    depends on this)."""
+    engine = _make_engine()
+    via_generate = engine.generate("Hello there.", DEFAULT_VOICE)
+
+    engine2 = _make_engine()  # fresh engine -- same fake pipeline, same seed
+    pcm = engine2.generate_pcm("Hello there.", DEFAULT_VOICE)
+    via_manual = encode_mp3(pcm)
+
+    assert via_generate == via_manual
+
+
+def test_max_part_chars_is_derived_from_target_part_minutes_and_seconds_per_char() -> (
+    None
+):
+    assert MAX_PART_CHARS == round(TARGET_PART_MINUTES * 60 / SECONDS_PER_CHAR)
 
 
 # ---------------------------------------------------------------------------

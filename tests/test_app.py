@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pytest
 from ebooklib import epub
 from flask.testing import FlaskClient
@@ -21,13 +22,21 @@ import backend.bridge as bridge_module
 import backend.dialogs as dialogs_module
 from backend.app import _origin_is_allowed, _safe_upload_path, create_app
 from pipeline.batch_runner import NeedsInputType
+from pipeline.tts_engine import KOKORO_SAMPLE_RATE, encode_mp3
 
 _LONG_TEXT = "Some real narrative content, sentence by sentence. " * 20
 
 
 class _FakeTTSEngine:
+    """generate_pcm() is the method AudioStage actually calls now
+    (ADR-0020); generate() stays a simple pass-through for
+    generate_voice_sample()-style callers."""
+
+    def generate_pcm(self, text: str, voice: str) -> np.ndarray:
+        return np.zeros(int(KOKORO_SAMPLE_RATE * 0.2), dtype=np.float32)
+
     def generate(self, text: str, voice: str) -> bytes:
-        return b"FAKE-MP3-" + b"-" * 2000
+        return encode_mp3(self.generate_pcm(text, voice))
 
     def generate_voice_sample(self, voice: str) -> bytes:
         return self.generate("sample", voice)

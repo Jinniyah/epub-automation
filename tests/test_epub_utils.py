@@ -21,6 +21,7 @@ from pipeline.epub_utils import (
     MAX_COMPONENT_LENGTH,
     chunk_text,
     extract_chapters,
+    group_chunks_into_parts,
     guess_author_from_filename,
     guess_series_from_filename,
     normalise_heading,
@@ -375,3 +376,182 @@ def test_extract_chapters_no_stop_markers_returns_all_chapters(tmp_path: Path) -
     titles = [c["title"] for c in chapters]
     assert "Excerpt From The Next Book" in titles
     assert stopped_at is None
+
+
+# ---------------------------------------------------------------------------
+# Chapter title detection -- ADR-0019, added 2026-07-20 after two real
+# books in the user's own library showed the original "first <h1>-<h3>"
+# heuristic missing real titles entirely (see module docstring additions
+# in epub_utils.py for the real examples).
+# ---------------------------------------------------------------------------
+
+
+def _make_single_chapter_epub(path: Path, body_html: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    book = epub.EpubBook()
+    book.set_identifier("id-single")
+    book.set_title("Single Chapter Book")
+    book.set_language("en")
+    book.add_author("Some Author")
+
+    ch1 = _add_html_doc(book, "chap1.xhtml", "Chapter 1", body_html)
+
+    book.toc = (ch1,)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", ch1]
+
+    epub.write_epub(str(path), book)
+    return path
+
+
+def test_extract_chapters_joins_two_headings_split_across_tags(
+    tmp_path: Path,
+) -> None:
+    """Real example: Wheel of Time EPUBs mark a chapter as a generic
+    "<h3>Chapter 1</h3>" immediately followed by a separately-tagged
+    named title, "<em><h4>Waiting</h4></em>" -- the original single-
+    heading lookup only ever saw "Chapter 1" and dropped "Waiting"."""
+    body = (
+        "<h3>Chapter 1</h3>"
+        "<em><h4>Waiting</h4></em>"
+        "<p>" + ("Real narrative content, sentence by sentence. " * 20) + "</p>"
+    )
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == "Chapter 1 — Waiting"
+
+
+def test_extract_chapters_does_not_join_a_heading_after_real_narrative_text(
+    tmp_path: Path,
+) -> None:
+    """A second heading separated from the first by substantial narrative
+    text is a genuinely different, later heading (e.g. a mid-chapter
+    section break) -- must not be folded into the chapter title."""
+    body = (
+        "<h1>Chapter 1</h1>"
+        "<p>" + ("Real narrative content, sentence by sentence. " * 20) + "</p>"
+        "<h2>A Later Section Break</h2>"
+        "<p>" + ("More narrative content follows here. " * 20) + "</p>"
+    )
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == "Chapter 1"
+
+
+def test_extract_chapters_single_heading_behaves_as_before(tmp_path: Path) -> None:
+    body = "<h1>Chapter 1</h1><p>" + ("Some real narrative content. " * 20) + "</p>"
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == "Chapter 1"
+
+
+def test_extract_chapters_finds_de_facto_title_with_no_heading_tag(
+    tmp_path: Path,
+) -> None:
+    """Real example: The Risen Empire's chapter names ("Pilot", "Senator")
+    are plain bold-styled <p> tags, never a real <hN> heading."""
+    body = (
+        '<p class="bold-style">Pilot</p>'
+        "<p>" + ("Real narrative content, sentence by sentence. " * 20) + "</p>"
+    )
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == "Pilot"
+
+
+def test_extract_chapters_de_facto_title_skipped_for_a_real_opening_sentence(
+    tmp_path: Path,
+) -> None:
+    """A short first paragraph that's a genuine sentence (ends in
+    terminal punctuation) must not be mistaken for a title."""
+    body = (
+        "<p>She awoke without sanity.</p>"
+        "<p>" + ("Real narrative content, sentence by sentence. " * 20) + "</p>"
+    )
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == ""
+
+
+def test_extract_chapters_de_facto_title_skipped_when_little_text_remains(
+    tmp_path: Path,
+) -> None:
+    """A short first paragraph followed by only a little more text isn't
+    a title sitting in front of a chapter -- it's most of a short
+    document's actual content (guards the "remaining text" floor,
+    distinct from the separate short-headingless-doc "Dedication" path,
+    which only applies at or under DEDICATION_MAX_CHARS)."""
+    body = "<p>Short Label</p><p>" + ("A little more text. " * 16) + "</p>"
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert len(chapters[0]["text"]) > 300  # not short enough for "Dedication"
+    assert chapters[0]["title"] == ""
+
+
+def test_extract_chapters_real_heading_takes_precedence_over_de_facto_title(
+    tmp_path: Path,
+) -> None:
+    """A document with a real heading never falls through to the
+    de-facto-title fallback, even if the first paragraph would otherwise
+    look title-like."""
+    body = (
+        "<h1>Chapter 1</h1>"
+        "<p>Pilot</p>"
+        "<p>" + ("Real narrative content, sentence by sentence. " * 20) + "</p>"
+    )
+    path = _make_single_chapter_epub(tmp_path / "book.epub", body)
+    chapters, _, _ = extract_chapters(str(path))
+    assert chapters[0]["title"] == "Chapter 1"
+
+
+# ---------------------------------------------------------------------------
+# group_chunks_into_parts -- ADR-0020, added 2026-07-20. One level up from
+# chunk_text(): groups already-chunked text into larger "parts" so
+# AudioStage can write one merged MP3 per ~15 minutes of audio.
+# ---------------------------------------------------------------------------
+
+
+def test_group_chunks_into_parts_combines_small_chunks_up_to_the_limit() -> None:
+    chunks = ["a" * 100, "b" * 100, "c" * 100]
+    parts = group_chunks_into_parts(chunks, max_part_chars=1000)
+    assert parts == [chunks]
+
+
+def test_group_chunks_into_parts_starts_a_new_part_when_over_limit() -> None:
+    chunks = ["a" * 100, "b" * 100, "c" * 100]
+    parts = group_chunks_into_parts(chunks, max_part_chars=250)
+    assert parts == [["a" * 100, "b" * 100], ["c" * 100]]
+
+
+def test_group_chunks_into_parts_never_splits_a_single_oversized_chunk() -> None:
+    chunks = ["a" * 5000]
+    parts = group_chunks_into_parts(chunks, max_part_chars=1000)
+    assert parts == [["a" * 5000]]
+
+
+def test_group_chunks_into_parts_oversized_chunk_followed_by_more_chunks() -> None:
+    chunks = ["a" * 5000, "b" * 100, "c" * 100]
+    parts = group_chunks_into_parts(chunks, max_part_chars=1000)
+    assert parts == [["a" * 5000], ["b" * 100, "c" * 100]]
+
+
+def test_group_chunks_into_parts_empty_input_returns_no_parts() -> None:
+    assert group_chunks_into_parts([], max_part_chars=1000) == []
+
+
+def test_group_chunks_into_parts_no_part_exceeds_the_limit_except_a_lone_oversized_chunk() -> (  # noqa: E501
+    None
+):
+    chunks = [f"sentence {i} " * 50 for i in range(20)]
+    parts = group_chunks_into_parts(chunks, max_part_chars=4000)
+    for part in parts:
+        total = sum(len(c) for c in part)
+        assert total <= 4000 or len(part) == 1
+
+
+def test_group_chunks_into_parts_is_deterministic() -> None:
+    chunks = [f"sentence {i} " * 50 for i in range(20)]
+    first = group_chunks_into_parts(chunks, max_part_chars=4000)
+    second = group_chunks_into_parts(chunks, max_part_chars=4000)
+    assert first == second

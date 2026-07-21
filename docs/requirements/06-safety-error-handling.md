@@ -135,9 +135,17 @@
 ## Long-run resilience
 
 - Laptop sleep, wifi drop, or a crash mid-audiobook must not corrupt
-  progress. The existing per-chunk "skip if MP3 already exists and is
-  above a minimum size" logic is the core mechanism and must be
-  preserved exactly.
+  progress. The existing "skip if MP3 already exists and is above a
+  minimum size" logic is the core mechanism and must be preserved
+  exactly. **The unit this check operates on changed 2026-07-20
+  (ADR-0020):** originally one raw ~4,000-char text chunk = one file;
+  now one merged ~15-minute "part" (several chunks' audio concatenated)
+  = one file, so an interruption can lose up to one in-progress part's
+  worth of already-generated-but-unflushed work, not just one chunk's —
+  a deliberate, bounded tradeoff for far fewer, larger, more
+  phone/tablet-friendly output files. See ADR-0020 for the full
+  reasoning and why the resume check still works the same way (file
+  exists on disk = safely done), just at a coarser grain.
 - **On every launch, check the state file for any book not yet marked
   complete through every stage it needs**, and if found, offer to
   continue it (see `03-gui-ux-design.md` §"Welcome back" screen). This
@@ -159,9 +167,10 @@
   normal status poll is checked, the live runner already knows about
   every pending book — "Continue" itself needed no change; it was always
   correct once the runner underneath it actually had the data. A book
-  that died mid-audio-generation resumes via the same existing per-chunk
-  disk-file-size check this section's first bullet already describes, not
-  by persisting exact chunk progress. The one case this can't help — a
+  that died mid-audio-generation resumes via the same existing
+  disk-file-size check this section's first bullet already describes
+  (now at part granularity, ADR-0020), not by persisting exact chunk
+  progress. The one case this can't help — a
   book that died before its very first status change was ever persisted
   (or a pre-Epic-9 state file with no snapshots at all) — is exactly what
   "clean up stuck in-progress state" below exists for.
@@ -200,8 +209,12 @@
 
 Two distinct actions, not one:
 
-- **Pause** — stop now, resume later, exactly where it left off. No
-  cleanup needed; this is just "stop calling the next chunk."
+- **Pause** — stop now, resume later. No cleanup needed; this is just
+  "stop calling the next chunk." **Resumes from the last fully-flushed
+  part, not necessarily exactly where it left off** (ADR-0020,
+  2026-07-20) — pausing mid-part discards that part's already-generated
+  audio (never partially written to disk), so resuming regenerates that
+  whole part, bounded to ~15 minutes of re-work, never more.
 - **Cancel** — abandons the book currently in progress. Requires
   confirmation first (e.g. *"Stop working on Fated? The audiobook won't
   be finished."*), since it's more destructive than Pause.
@@ -211,13 +224,13 @@ Two distinct actions, not one:
 - Delete any partial/temp extraction directories used by the sanitize
   stage for the book in question (mirrors the existing PowerShell
   script's use of a GUID-suffixed temp directory under `%TEMP%`).
-- For the audio stage specifically, because generation is chunk-by-chunk
-  and each finished chunk is already a real, valid MP3: **ask her at
-  cancel time** whether to keep already-completed chunks (resume later)
-  or discard everything for that book. Default/pre-selected choice should
-  be "keep partial, resume later" — the safer, less-destructive option,
-  consistent with Pause's behavior, in case Cancel is pressed by
-  accident.
+- For the audio stage specifically, because generation writes one merged
+  "part" file at a time (ADR-0020) and each finished part is already a
+  real, valid MP3: **ask her at cancel time** whether to keep
+  already-completed parts (resume later) or discard everything for that
+  book. Default/pre-selected choice should be "keep partial, resume
+  later" — the safer, less-destructive option, consistent with Pause's
+  behavior, in case Cancel is pressed by accident.
 - Reset that book's entries in the state file to reflect reality (not
   "done," and correctly reflecting how much *is* actually kept, per the
   choice above) — a future run must not be confused about how far the

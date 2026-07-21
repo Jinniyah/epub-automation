@@ -557,6 +557,63 @@ real-user report) is recoverable from git history and from
     separately-scoped work, not a mechanical extension of this fix.
     Revisit when a full "replace vs. keep both" EPUB collision prompt is
     actually wanted.
+  - **OPEN, raised by direct user question 2026-07-20, not yet
+    decided:** does correcting metadata via Review's "No, let me fix it"
+    need to re-deliver the EPUB too? `RetagStage`
+    (`pipeline/retag_stage.py`) only ever touches the audiobook's `.mp3`
+    files and containing folder — it has no mechanism for any `.epub`
+    file, and `BatchRunner.retag_book()` never references
+    `output_epub_path` at all. Before this fix that didn't matter (the
+    EPUB never reached `output_folder`); now that it does, delivered
+    early at sanitize time, a post-Review correction leaves her with a
+    correctly-renamed audiobook folder and a stale-named/stale-metadata
+    EPUB for the same book — a new inconsistency this fix introduces,
+    not one it resolves. User wants to think about the right fix shape
+    before committing to one (re-copy under the corrected name at retag
+    time? rename in place, mirroring what `RetagStage` already does for
+    the audiobook folder? something else?). See
+    `docs/requirements/08-open-questions-and-assumptions.md` for the
+    full writeup.
+- [x] **Real listening feedback: audiobook playback "cuts off and starts
+  in strange locations."** **Found and fixed 2026-07-20**, real user
+  report from actually listening to a generated audiobook ("The Risen
+  Empire"). Investigating it surfaced three distinct, real problems:
+  - **Chunk filename sort order (fixed same session, mechanical bug):**
+    unpadded chunk suffixes (`006_1.mp3`...`006_10.mp3`...`006_2.mp3`)
+    sorted alphabetically out of playback order on any filename-sorting
+    player (most basic phone players, car stereos). Fixed by zero-
+    padding to 3 digits. The real "Risen Empire" files on disk were
+    renamed in place (153 files) to match, verified correct order after.
+  - **Chapter-title detection (ADR-0019):** `extract_chapters()` only
+    ever looked for the first `<h1>`-`<h3>` tag. Two real books in the
+    user's own library exposed two different failure modes: The Risen
+    Empire's chapter names ("Pilot", "Senator") are bold `<p>` tags with
+    no heading at all (title silently empty, ID3 fell back to generic
+    "Chapter N"); The Dragon Reborn's real named titles ("Waiting") sit
+    in a separate `<h4>` right after a generic `<h3>Chapter 1</h3>`
+    (name dropped entirely). Fixed via broadened multi-tag heading
+    collection plus a best-effort de-facto-title fallback for
+    headingless documents — deliberately bounded, not a claim of
+    universal detection (direct user framing: "not all books are the
+    same").
+  - **Merged ~15-minute "parts" instead of one file per ~4,000-char
+    chunk (ADR-0020):** even with chunks in the right order, the
+    audible gap between one small chunk's file ending and the next
+    beginning made playback hard to follow. Chapter boundaries
+    themselves were confirmed correct (one real, if very long, chapter
+    per spine document — not several chapters wrongly merged). Target
+    size chosen directly with the user against real per-chapter numbers
+    from her own library (chapter 12: 53 chunks / 205 min / 188MB
+    unmerged — confirmed too large for phone/tablet playback as one
+    file). Deliberate, bounded resume-loss tradeoff: an interruption can
+    now lose up to one in-progress part (~15 min), not just one chunk —
+    see ADR-0020 and the updated `06-safety-error-handling.md` wording.
+  - 504 backend tests / 96.5% coverage, clean `black`/`ruff`/`mypy
+    --strict`. Live-verified against real Kokoro (model already cached
+    locally), not just fake-TTS-engine unit tests. See
+    `CODEBASE_INDEX.md`'s Session notes for the full writeup and
+    `docs/design/adr/0019-chapter-title-detection-broadened.md` /
+    `docs/design/adr/0020-merge-audio-chunks-into-per-chapter-parts.md`.
 
 ---
 
@@ -839,6 +896,7 @@ packaging first and iterating against the finished artifact.
 | "More options": clean up stuck in-progress book state | 9 — done, built and verified 2026-07-18 (`POST /api/cleanup-in-progress`, `MoreOptionsScreen`'s "🧹 Nuke everything in progress"). |
 | Persistent step/progress indicator across the main batch flow | 9 — done, built and verified 2026-07-18 (`StepProgress` shared component). |
 | Sanitized EPUB never reached `output_folder` | 9 — done, fixed 2026-07-20 (`BatchRunner._copy_epub_to_output()`). EPUB collision handling deliberately left as auto-dedupe, not a full `needs_input` prompt — see that checklist item's own note for why and what a proper follow-up needs. |
+| Audiobook playback "cuts off and starts in strange locations" (real listening feedback) | 9 — done, fixed 2026-07-20. Chunk filename sort-order bug (mechanical), chapter-title detection broadened (ADR-0019), audio chunks merged into ~15-min parts (ADR-0020). |
 | Vite dev-server Origin/CSRF proxy config | 7 — done |
 | Screen 1 settings entry points → "More options" hub | 8.5 — done |
 | Header (brand title + Home button) redesign | 8.5 — done |

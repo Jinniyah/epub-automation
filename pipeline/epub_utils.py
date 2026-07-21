@@ -19,6 +19,7 @@ import re
 
 import ebooklib
 from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
 from ebooklib import epub
 
 MAX_COMPONENT_LENGTH = 100
@@ -215,6 +216,98 @@ def normalise_heading(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Chapter title detection -- broadened 2026-07-20 (ADR-0019) beyond the
+# original epub-to-audio behavior (a single "first <h1>-<h3>" lookup),
+# after real books in the user's own library showed two distinct failure
+# modes the original heuristic missed entirely: a heading split across
+# multiple tags (Wheel of Time: "<h3>Chapter 1</h3>" then a separately
+# nested "<h4>Waiting</h4>"), and a title with no heading tag at all
+# (The Risen Empire: chapter names are plain bold-styled <p> tags, e.g.
+# "Pilot"/"Senator"). Both fixes are deliberately best-effort, same "a
+# wrong guess is worse than no guess" philosophy as
+# guess_author_from_filename()/guess_series_from_filename() above -- see
+# ADR-0019 for the real examples and why a universal solution isn't
+# attempted ("not all books are the same").
+# ---------------------------------------------------------------------------
+
+_HEADING_TAG_RE = re.compile(r"^h[1-6]$")
+# Chars of non-heading text allowed before a subsequent heading no longer
+# counts as part of the same title cluster (e.g. a "Chapter N" heading
+# immediately followed by a separately-tagged named title, with nothing
+# but a stray image/whitespace paragraph between them).
+_HEADING_CLUSTER_TEXT_BUDGET = 100
+
+_TITLE_LIKE_MAX_CHARS = 60
+_SENTENCE_END_RE = re.compile(r"[.!?]$")
+# The de-facto-title fallback only fires when there's clearly substantial
+# narrative content left after the candidate title -- guards against
+# mistaking a short document's own content for a "title" sitting in front
+# of it.
+_DE_FACTO_TITLE_MIN_REMAINING_CHARS = 500
+
+
+def _extract_heading_title(soup: BeautifulSoup) -> str:
+    """Collect heading tags (h1-h6, not just h1-h3) that appear before
+    real narrative text starts, in document order, and join them --
+    covers documents that split a chapter's heading across multiple tags
+    (real example: Wheel of Time EPUBs, "<h3>Chapter 1</h3>" then
+    "<em><h4>Waiting</h4></em>"). A document with a single heading
+    behaves exactly as before (one heading in, one heading out).
+
+    Walks `.descendants` (every Tag *and* NavigableString leaf, in
+    document order) rather than `.find_all(True)` -- a `Tag`'s own
+    `get_text()` aggregates its *entire* subtree, so summing it across
+    every tag in a document (including outer wrappers like `<html>`/
+    `<body>`) would blow the budget on the very first container tag,
+    before ever reaching a real heading. Only `NavigableString` leaves
+    contribute to the budget, each real character counted exactly once
+    regardless of nesting depth; text belonging to a heading itself is
+    excluded from the budget (already captured via the heading branch).
+    """
+    titles: list[str] = []
+    text_seen = 0
+    body = soup.body or soup
+    for node in body.descendants:
+        if isinstance(node, Tag):
+            if _HEADING_TAG_RE.match(node.name or ""):
+                heading_text = node.get_text(strip=True)
+                if heading_text:
+                    titles.append(heading_text)
+            continue
+        if not isinstance(node, NavigableString):
+            continue
+        if node.find_parent(_HEADING_TAG_RE) is not None:
+            continue  # part of a heading's own text -- already counted
+        if text_seen > _HEADING_CLUSTER_TEXT_BUDGET:
+            break
+        text_seen += len(str(node).strip())
+    return " — ".join(titles)
+
+
+def _find_de_facto_title(soup: BeautifulSoup) -> str:
+    """Fallback for documents with zero heading tags: if the first
+    text-bearing paragraph is short, has no terminal sentence
+    punctuation, and is followed by substantially longer prose, treat it
+    as a de facto chapter title (real example: The Risen Empire's
+    "Pilot"/"Senator", styled bold via a CSS class, never a real <hN>
+    tag). Only ever consulted by extract_chapters() when
+    _extract_heading_title() found nothing -- never overrides a real
+    heading."""
+    first_el = soup.find(lambda t: t.name == "p" and t.get_text(strip=True))
+    if first_el is None:
+        return ""
+    candidate = first_el.get_text(strip=True)
+    if not candidate or len(candidate) > _TITLE_LIKE_MAX_CHARS:
+        return ""
+    if _SENTENCE_END_RE.search(candidate):
+        return ""
+    remaining_text = soup.get_text()
+    if len(remaining_text) - len(candidate) < _DE_FACTO_TITLE_MIN_REMAINING_CHARS:
+        return ""
+    return candidate
+
+
+# ---------------------------------------------------------------------------
 # Chapter extraction -- ported verbatim from epub-to-audio\epub_utils.py.
 # ---------------------------------------------------------------------------
 
@@ -259,9 +352,8 @@ def extract_chapters(
             continue
 
         soup = BeautifulSoup(item.get_content(), "html.parser")
-        heading_el = soup.find(re.compile(r"^h[1-3]$"))
-        raw_title = heading_el.get_text(strip=True) if heading_el else ""
-        ch_title = normalise_heading(raw_title) if raw_title else ""
+        heading_title = _extract_heading_title(soup)
+        ch_title = normalise_heading(heading_title) if heading_title else ""
 
         text = soup.get_text(separator="\n")
         text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
@@ -273,6 +365,9 @@ def extract_chapters(
         # Headingless short documents are dedications / epigraphs
         if not ch_title and len(text) <= DEDICATION_MAX_CHARS:
             ch_title = "Dedication"
+        elif not ch_title:
+            de_facto = _find_de_facto_title(soup)
+            ch_title = normalise_heading(de_facto) if de_facto else ""
 
         chapters.append({"title": ch_title, "text": text})
 
@@ -327,3 +422,46 @@ def chunk_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
         chunks.append(current.strip())
 
     return chunks
+
+
+# ---------------------------------------------------------------------------
+# Part grouping -- new 2026-07-20 (ADR-0020). One level up from
+# chunk_text(): groups already-chunked text into larger "parts" so
+# AudioStage can write one merged MP3 per ~15 minutes of audio instead of
+# one file per ~4,000-char chunk. See ADR-0020 for why this is pure text
+# math (never based on actual generated audio duration) and why parts
+# must never span a chapter boundary (callers call this once per chapter).
+# ---------------------------------------------------------------------------
+
+
+def group_chunks_into_parts(chunks: list[str], max_part_chars: int) -> list[list[str]]:
+    """Group already-chunked text strings (chunk_text()'s output) into
+    larger "part" groups by cumulative character count -- same
+    greedy-accumulate shape chunk_text() already uses one level up
+    (paragraphs/sentences into chunks). Pure text function, computed
+    before any TTS/audio work from already-known chapter text, so it is
+    exactly reproducible on a resumed run (same input -> same grouping,
+    every time) -- deliberately NOT based on actual generated audio
+    duration, which risks a different boundary on resume if TTS output
+    length isn't bit-for-bit deterministic (ADR-0020).
+
+    Never splits a chunk -- a chunk is the atomic TTS-generation unit.
+    A single chunk already exceeding max_part_chars becomes its own
+    one-chunk part rather than being split or dropped.
+
+    Callers must call this once per chapter -- parts must never span a
+    chapter boundary.
+    """
+    parts: list[list[str]] = []
+    current: list[str] = []
+    current_len = 0
+    for chunk in chunks:
+        if current and current_len + len(chunk) > max_part_chars:
+            parts.append(current)
+            current = []
+            current_len = 0
+        current.append(chunk)
+        current_len += len(chunk)
+    if current:
+        parts.append(current)
+    return parts

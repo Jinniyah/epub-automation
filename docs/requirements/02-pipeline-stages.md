@@ -143,7 +143,19 @@ Per book:
 1. Resolve metadata (EPUB internal → filename parse → CLI/GUI overrides,
    same 3-tier priority as the original tool).
 2. Extract chapters in spine order (existing `extract_chapters` logic,
-   including `--stop-after` back-matter truncation).
+   including `--stop-after` back-matter truncation). **Chapter-title
+   detection broadened 2026-07-20 (ADR-0019)**, a real bug found via two
+   real EPUBs in the user's own library: the original logic only ever
+   looked for the first `<h1>`-`<h3>` tag, which either found nothing
+   (a book styling chapter names as a bold `<p>`, never a real heading
+   — the real title silently never appeared anywhere) or found the
+   wrong one (a book using a generic `<h3>Chapter 1</h3>` immediately
+   followed by a separately-tagged named `<h4>` title, the name dropped
+   entirely). Now collects headings up to `h6` clustered before real
+   narrative text starts (joining split headings), with a best-effort
+   de-facto-title fallback for headingless documents — see that ADR for
+   the real examples and why this is deliberately bounded, not a claim
+   of universal chapter-title detection.
 3. Chunk each chapter's text to a max character length suitable for the
    TTS engine — reuses `chunk_text()` from the existing
    `epub-to-audio\epub_utils.py` verbatim, including its `MAX_CHUNK_CHARS =
@@ -154,21 +166,36 @@ Per book:
    against Kokoro's actual behavior as part of the voice
    quality/parity verification already flagged in
    `08-open-questions-and-assumptions.md` (item #2), since a limit tuned
-   for one TTS backend isn't guaranteed to be optimal for another.
+   for one TTS backend isn't guaranteed to be optimal for another. **A
+   chunk is now purely an internal TTS-request-sizing detail** — see
+   item 6 below for what actually lands on disk.
 4. **Voice selection happens here, per book** — see
    `03-gui-ux-design.md` §Voice assignment for the full UX. This cannot
    happen earlier in the pipeline because the book's identity (genre,
    series) isn't known until after renaming/metadata resolution.
 5. Generate audio per chunk via the local Kokoro engine (no browser, no
-   network dependency once the model is cached).
-6. Write MP3s named `<Author — Series #NN — Title> - <chapter>_<chunk>.mp3`,
-   tagged with ID3v2.3 (title, artist, album, track number, cover art).
-   Every path component here also goes through `sanitize_filesystem_name()`
-   (ADR-0016), same as the rename stage.
+   network dependency once the model is cached), then **merge chunks
+   into ~15-minute "parts" before ever writing a file** (ADR-0020, see
+   below) — raw PCM is accumulated per chunk and encoded once per part,
+   not once per chunk.
+6. Write MP3s named `<Author — Series #NN — Title> - <chapter>_<part>.mp3`,
+   tagged with ID3v2.3 (title, artist, album, track number, cover art;
+   track number/total now count parts, not raw chunks). Every path
+   component here also goes through `sanitize_filesystem_name()`
+   (ADR-0016), same as the rename stage. **Both `<chapter>` and `<part>`
+   are zero-padded to 3 digits** (`006_001.mp3`, not `006_1.mp3`) — fixed
+   2026-07-20, a real bug found via real-world listening: an unpadded
+   number sorts alphabetically as 1, 10, 11, ..., 2, 20, ... on any
+   player/device that orders files by name rather than by ID3 track
+   number (most basic media players, phone default apps, USB car
+   stereos), scrambling playback for any chapter with 10+ files — a real
+   chapter in "The Risen Empire" had 53 chunks (now far fewer parts).
 7. **Resume support:** any existing MP3 above a minimum size threshold is
-   treated as already-generated and skipped — this must keep working
-   exactly as today, since it's what makes Pause/Cancel/interruption
-   recovery safe (see `06-safety-error-handling.md`).
+   treated as already-generated, skipping every chunk that belongs to
+   it — the resume/interruption-safety unit is now one **part**, not one
+   raw chunk (ADR-0020's deliberate, bounded change — see
+   `06-safety-error-handling.md` §Long-run resilience for what that
+   actually means in the worst case).
 
 **Batch behavior:** unlike the original single-file CLI tool, this stage
 loops over every book in `02-Sanitized/`, running the full per-book flow
@@ -176,15 +203,20 @@ loops over every book in `02-Sanitized/`, running the full per-book flow
 never generate in parallel — one at a time, to avoid resource contention
 and to keep progress reporting simple and truthful.
 
-**OPEN — per-chunk files vs. a merged per-chapter file:** as written,
-each chunk becomes its own permanent MP3 file, which for a long chapter
-can mean dozens of small files, and hundreds across a whole book. This
-preserves fine-grained resume behavior, but it's also literally what
-she'll see track-by-track in whatever she plays these back on. Whether
-a final per-chapter merge pass belongs in v1 is genuinely undecided —
-see `08-open-questions-and-assumptions.md` §New items found during a
-post-backlog-kickoff review for the tradeoff and what it depends on
-(what device/app she'll actually listen on).
+**Resolved 2026-07-20 — per-chunk files vs. a merged per-chapter file
+(ADR-0020):** as originally written, each chunk became its own permanent
+MP3 file, which for a long chapter could mean dozens of small files, and
+hundreds across a whole book. Real listening feedback on "The Risen
+Empire" confirmed this was a genuine, separate problem from the
+chunk-sort-order bug fixed the same day (item 6 above): even with chunks
+in the correct order, the audible "odd space" where one chunk's MP3
+ended and the next began made it hard to follow. Resolved by merging
+chunks into ~15-minute/~15MB "parts," a target chosen directly with the
+user against real per-chapter size data from her own library (chapter
+12 of the same real book: 53 chunks / 205 min / 188MB unmerged — too
+large for phone/tablet playback as a single file). See ADR-0020 for the
+full decision, including the deliberate, bounded resume-loss tradeoff
+this introduces.
 
 ---
 

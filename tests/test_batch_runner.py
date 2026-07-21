@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from ebooklib import epub
 
@@ -34,6 +35,7 @@ from pipeline.input_validation import RejectionReason
 from pipeline.rename_stage import RenameStage, build_filename
 from pipeline.stage import BookState
 from pipeline.state_manager import StateRepository
+from pipeline.tts_engine import KOKORO_SAMPLE_RATE, encode_mp3
 
 _LONG_TEXT = "Some real narrative content, sentence by sentence. " * 20
 _MULTI_CHUNK_TEXT = "Sentence content here. " * 400
@@ -74,16 +76,20 @@ def _make_epub(
 
 class _FakeTTSEngine:
     """Deterministic fake -- never touches real Kokoro. `gate`, if closed,
-    blocks every `generate()` call until opened, letting tests land a
+    blocks every `generate_pcm()` call until opened, letting tests land a
     Pause/Cancel request precisely between chunks without racing a real
-    background thread's timing."""
+    background thread's timing. `generate_pcm()` is the method
+    `AudioStage` actually calls now (ADR-0020) to accumulate a part's
+    audio before a single real `encode_mp3()` call; `generate()` stays a
+    simple pass-through, used only by `generate_voice_sample()`-style
+    callers."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
         self.gate = threading.Event()
         self.gate.set()
-        # Set the instant generate() is entered, *before* waiting on the
-        # gate -- lets a test block until the background thread's
+        # Set the instant generate_pcm() is entered, *before* waiting on
+        # the gate -- lets a test block until the background thread's
         # should_stop check for this chunk has already run (and returned
         # "keep going") before the test registers a pause/cancel request,
         # closing a real TOCTOU race: thread.start() doesn't guarantee the
@@ -91,11 +97,18 @@ class _FakeTTSEngine:
         # time the calling thread's next line executes.
         self.entered = threading.Event()
 
-    def generate(self, text: str, voice: str) -> bytes:
+    def generate_pcm(self, text: str, voice: str) -> np.ndarray:
         self.entered.set()
         self.gate.wait(timeout=5)
         self.calls.append((text, voice))
-        return b"FAKE-MP3-" + str(len(self.calls)).encode() + b"-" * 2000
+        # 0.2s of silence at Kokoro's native rate -- encodes to
+        # comfortably more than AudioStage's MIN_VALID_MP3_BYTES, so
+        # resume-detection tests can tell a "real" generated file from a
+        # too-small leftover.
+        return np.zeros(int(KOKORO_SAMPLE_RATE * 0.2), dtype=np.float32)
+
+    def generate(self, text: str, voice: str) -> bytes:
+        return encode_mp3(self.generate_pcm(text, voice))
 
     def generate_voice_sample(self, voice: str) -> bytes:
         return self.generate("sample", voice)
@@ -479,7 +492,7 @@ def test_epub_copy_survives_audio_generation_failing_later(tmp_path: Path) -> No
     take it away."""
 
     class _FailingTTSEngine(_FakeTTSEngine):
-        def generate(self, text: str, voice: str) -> bytes:
+        def generate_pcm(self, text: str, voice: str) -> np.ndarray:
             raise RuntimeError("simulated TTS failure")
 
     runner = _make_runner(tmp_path, tts_engine=_FailingTTSEngine())
@@ -822,7 +835,12 @@ def test_resolve_collision_replace_overwrites_the_original(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_pause_mid_generation_stops_before_the_next_chunk(tmp_path: Path) -> None:
+def test_pause_mid_generation_discards_the_in_progress_part(tmp_path: Path) -> None:
+    """ADR-0020: pausing mid-part discards that part's already-generated-
+    but-not-yet-flushed chunk(s) -- `chunks_done` only ever counts fully
+    flushed parts, never an in-progress one. A deliberate, bounded change
+    from the old per-chunk-file resume unit ("stops before the next
+    chunk, that chunk's own file already safely on disk")."""
     engine = _FakeTTSEngine()
     engine.gate.clear()
     runner = _make_runner(
@@ -848,14 +866,19 @@ def test_pause_mid_generation_stops_before_the_next_chunk(tmp_path: Path) -> Non
 
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_PAUSED)
     data = _data_of(runner, book_id)
-    assert data["chunks_done"] == 1
+    assert data["chunks_done"] == 0  # nothing flushed -- part discarded
     assert data["chunks_done"] < data["chunks_total"]
-    assert len(engine.calls) == 1
+    assert len(engine.calls) == 1  # exactly the one in-flight chunk ran
+    audio_folder = Path(data["audio_folder"])
+    assert list(audio_folder.glob("*.mp3")) == []
 
 
-def test_resuming_a_paused_book_continues_from_where_it_left_off(
+def test_resuming_a_paused_book_redoes_the_interrupted_part(
     tmp_path: Path,
 ) -> None:
+    """ADR-0020's bounded resume-loss tradeoff: resuming after a mid-part
+    pause must regenerate every chunk of the interrupted part, not just
+    the missing tail -- nothing for that part was ever written to disk."""
     engine = _FakeTTSEngine()
     engine.gate.clear()
     runner = _make_runner(
@@ -883,9 +906,11 @@ def test_resuming_a_paused_book_continues_from_where_it_left_off(
         lambda: _data_of(runner, book_id).get("needs_input_type")
         == NeedsInputType.REVIEW_RESULT
     )
-    # Already-written chunk 1 was skipped on resume, not regenerated --
-    # only the remaining chunks triggered a fresh generate() call.
-    assert len(engine.calls) == calls_before_resume + (chunks_total - 1)
+    # Every chunk was regenerated, including the one that had already
+    # succeeded before the pause -- its PCM was never flushed anywhere.
+    # (Same fake engine instance across both runs, so its call log also
+    # still carries the one pre-pause call.)
+    assert len(engine.calls) == calls_before_resume + chunks_total
 
 
 def test_start_generation_called_again_while_thread_alive_still_picks_up_new_book(
@@ -922,6 +947,13 @@ def test_start_generation_called_again_while_thread_alive_still_picks_up_new_boo
 
 
 def test_cancel_keep_partial_preserves_the_audio_folder(tmp_path: Path) -> None:
+    """ "Keep partial" means the audio folder itself is never deleted on
+    cancel -- distinct from the discard variant below, which removes it.
+    Whether it happens to already contain a fully-flushed part or not
+    (ADR-0020's bounded resume-loss tradeoff if the cancel lands
+    mid-part) is exercised directly at the AudioStage level
+    (test_audio_stage.py); this test's job is just proving BatchRunner's
+    keep-partial wiring doesn't delete the folder either way."""
     engine = _FakeTTSEngine()
     engine.gate.clear()
     runner = _make_runner(
@@ -942,7 +974,6 @@ def test_cancel_keep_partial_preserves_the_audio_folder(tmp_path: Path) -> None:
     _wait_until(lambda: _status_of(runner, book_id) == STATUS_CANCELLED)
     audio_folder = Path(_data_of(runner, book_id)["audio_folder"])
     assert audio_folder.exists()
-    assert any(audio_folder.glob("*.mp3"))
 
 
 def test_cancel_discard_deletes_the_partial_audio_folder(tmp_path: Path) -> None:

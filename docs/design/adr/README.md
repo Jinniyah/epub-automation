@@ -29,6 +29,8 @@ Status legend: **Accepted** (decided, ready to build against) ·
 | [0016](0016-windows-safe-filesystem-naming.md) | Windows-safe filesystem naming (illegal characters, reserved device names) and long-path handling | Accepted |
 | [0017](0017-library-staging-cleanup.md) | Automatic cleanup of internal `Library/` staging copies after a book completes | Accepted |
 | [0018](0018-mp3-encoding-lameenc-native-sample-rate.md) | MP3 encoding via `lameenc` (not `soundfile`), at Kokoro's native 24kHz (not 48kHz) | Accepted |
+| [0019](0019-chapter-title-detection-broadened.md) | Broaden chapter-title detection beyond "first `<h1>`-`<h3>`" (multi-tag headings, headingless de-facto titles) | Accepted |
+| [0020](0020-merge-audio-chunks-into-per-chapter-parts.md) | Merge audio chunks into ~15-minute per-chapter "parts" instead of one file per ~4,000-char chunk | Accepted |
 
 ## Post-review fixes (2026-07-05 design-review pass)
 
@@ -70,13 +72,33 @@ neither had a natural existing home:
   `Library/` staging copies after a book completes, risking unbounded
   disk growth over the tool's real-world lifetime.
 
-Two further findings from the same pass were **not** turned into ADRs,
-because they involve a real tradeoff this project's author should weigh
-in on rather than one this review should decide unilaterally — see
-`docs/requirements/08-open-questions-and-assumptions.md` for both
-(PyInstaller `--onefile` vs. `--onedir` packaging, and whether
-per-chunk audio files should be merged into per-chapter files before
-calling v1 done).
+Two further findings from the same pass were **not** turned into ADRs
+at the time, because they involved a real tradeoff this project's
+author should weigh in on rather than one this review should decide
+unilaterally — see `docs/requirements/08-open-questions-and-assumptions.md`.
+One remains open (PyInstaller `--onefile` vs. `--onedir` packaging); the
+other (whether per-chunk audio files should be merged into per-chapter
+files) was resolved 2026-07-20 via real user feedback and became
+**ADR-0020**.
+
+## Real-world listening feedback (2026-07-20)
+
+A real user report — chunked audio "cuts off and starts in strange
+locations" while actually listening to a generated audiobook — led to
+one bug fix folded directly into `pipeline/audio_stage.py` (unpadded
+chunk-suffix filenames scrambling alphabetical/filename-sort playback
+order on basic players; see `CODEBASE_INDEX.md`'s session notes, not a
+design decision so no ADR of its own) and two new ADRs from the same
+investigation:
+
+- **ADR-0019** — chapter-title detection broadened, after two real EPUBs
+  in the user's own library exposed two different ways the original
+  "first `<h1>`-`<h3>`" heuristic silently dropped or picked the wrong
+  chapter title.
+- **ADR-0020** — resolves the "per-chunk vs. merged per-chapter files"
+  open item above: audio chunks now merge into ~15-minute "parts,"
+  a target chosen directly with the user against real per-chapter size
+  data from her own library.
 
 ## Post-Epic-6 security review fixes (2026-07-10)
 

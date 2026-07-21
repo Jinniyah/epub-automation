@@ -107,6 +107,16 @@ BYTES_PER_SECOND_OF_AUDIO = MP3_BIT_RATE_KBPS * 1000 // 8  # 16,000
 # one constant, not the formula, once real measured data exists.
 SECONDS_PER_CHAR = 0.07
 
+# Soft phone/tablet-friendliness target for a merged audio "part"
+# (ADR-0020, docs/requirements/02-pipeline-stages.md §Stage 3) -- not a
+# hard limit: derived from the same placeholder SECONDS_PER_CHAR used for
+# the disk-space estimate above, so actual part length is only
+# approximately TARGET_PART_MINUTES until real Kokoro benchmarking data
+# replaces that one constant -- this formula gets more accurate for free
+# at that point, no code change needed.
+TARGET_PART_MINUTES = 15
+MAX_PART_CHARS = round(TARGET_PART_MINUTES * 60 / SECONDS_PER_CHAR)
+
 
 def estimate_audio_bytes(
     total_chars_remaining: int, seconds_per_char: float = SECONDS_PER_CHAR
@@ -144,8 +154,15 @@ def _audio_to_numpy(audio: Any) -> np.ndarray:
     return np.asarray(audio, dtype=np.float32)
 
 
-def _encode_mp3(audio: np.ndarray, sample_rate: int = KOKORO_SAMPLE_RATE) -> bytes:
-    """Encode float32 PCM audio (range [-1, 1]) as 128kbps CBR mono MP3."""
+def encode_mp3(audio: np.ndarray, sample_rate: int = KOKORO_SAMPLE_RATE) -> bytes:
+    """Encode float32 PCM audio (range [-1, 1]) as 128kbps CBR mono MP3.
+
+    Public (not `_encode_mp3`) since ADR-0020: `AudioStage` calls this
+    directly to encode a whole merged "part"'s concatenated PCM in one
+    encoder session, rather than receiving pre-encoded MP3 bytes per
+    chunk from `TTSEngine.generate()`. Matches the name
+    `04-tts-engine.md`'s own interface sketch already used.
+    """
     import lameenc
 
     encoder = lameenc.Encoder()
@@ -162,15 +179,20 @@ def _encode_mp3(audio: np.ndarray, sample_rate: int = KOKORO_SAMPLE_RATE) -> byt
 
 class TTSEngineLike(Protocol):
     """The structural interface `AudioStage`/`BatchRunner` actually need
-    from a TTS engine -- just `generate()`. Typed as a Protocol rather
-    than the concrete `TTSEngine` class below so tests can supply a
-    plain duck-typed fake (never touching real Kokoro) without mypy
-    --strict treating it as an argument-type mismatch; a real
-    `TTSEngine` instance already satisfies this structurally, no change
-    needed at any real call site.
+    from a TTS engine. Typed as a Protocol rather than the concrete
+    `TTSEngine` class below so tests can supply a plain duck-typed fake
+    (never touching real Kokoro) without mypy --strict treating it as an
+    argument-type mismatch; a real `TTSEngine` instance already satisfies
+    this structurally, no change needed at any real call site.
+
+    `generate_pcm()` (ADR-0020) is what `AudioStage` actually calls now,
+    per chunk, to accumulate a "part"'s raw audio before a single encode
+    -- `generate()` remains for `generate_voice_sample()`/
+    `ensure_voice_samples()`, single-shot, no chaptering, untouched.
     """
 
     def generate(self, text: str, voice: str) -> bytes: ...
+    def generate_pcm(self, text: str, voice: str) -> np.ndarray: ...
 
 
 class TTSEngine:
@@ -199,14 +221,18 @@ class TTSEngine:
             self._pipelines[lang_code] = pipeline
         return pipeline
 
-    def generate(self, text: str, voice: str) -> bytes:
-        """Return 128kbps CBR mono MP3 bytes for *text* spoken in *voice*.
+    def generate_pcm(self, text: str, voice: str) -> np.ndarray:
+        """Return raw float32 PCM audio (range [-1, 1]) for *text* spoken
+        in *voice*, at `KOKORO_SAMPLE_RATE`, un-encoded -- the seam
+        `AudioStage` uses (ADR-0020) to accumulate a whole "part"'s audio
+        in memory before a single `encode_mp3()` call, instead of
+        round-tripping through MP3 per ~4,000-char chunk.
 
         Raises `ValueError` for an unknown voice key, and lets any
         exception from the underlying pipeline call propagate -- retrying
         a transient failure is the audio stage's job
         (docs/requirements/04-tts-engine.md §Interface sketch), not this
-        engine's.
+        engine's. Same contract `generate()` always had.
         """
         if voice not in VOICES:
             raise ValueError(f"Unknown voice: {voice!r}")
@@ -217,8 +243,18 @@ class TTSEngine:
         ]
         if not segments:
             raise RuntimeError(f"No audio generated for voice {voice!r}")
-        full_audio = np.concatenate(segments)
-        return _encode_mp3(full_audio)
+        return np.concatenate(segments)
+
+    def generate(self, text: str, voice: str) -> bytes:
+        """Return 128kbps CBR mono MP3 bytes for *text* spoken in *voice*.
+
+        Thin wrapper around `generate_pcm()` + `encode_mp3()` (ADR-0020)
+        -- kept exactly as before for every existing caller
+        (`generate_voice_sample()`/`ensure_voice_samples()`, single-shot,
+        no chaptering), which stays untouched and unaffected by the
+        merged-parts change.
+        """
+        return encode_mp3(self.generate_pcm(text, voice))
 
     def generate_voice_sample(self, voice: str) -> bytes:
         """Generate the standard voice-sample line for *voice*
